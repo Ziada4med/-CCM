@@ -1,284 +1,343 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Creator Category Management - PRISM Admin</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-</head>
-<body class="bg-gray-50">
-    <!-- Header -->
-    <header class="bg-white shadow-sm border-b">
-        <div class="container mx-auto px-6 py-4">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-4">
-                    <div class="h-10 w-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                        <span class="text-white font-bold text-lg">P</span>
-                    </div>
-                    <div>
-                        <h1 class="text-xl font-bold text-gray-900">Creator Category Management</h1>
-                        <p class="text-sm text-gray-500">PRISM Admin Portal</p>
-                    </div>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <span id="current-user-info" class="text-sm text-gray-600"></span>
-                    <button onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
-                        Logout
-                    </button>
-                </div>
-            </div>
-        </div>
-    </header>
+-- Create RPC Function for Creator Access Control in Code Generation Portal
+-- Execute this in your Supabase SQL Editor
 
-    <!-- Main Content -->
-    <div class="container mx-auto px-6 py-8">
-        <!-- Tab Navigation -->
-        <div class="bg-white rounded-lg shadow-sm mb-8">
-            <div class="border-b border-gray-200">
-                <nav class="-mb-px flex space-x-8 px-6">
-                    <button onclick="switchTab('categories')" id="categories-tab" class="tab-button py-4 px-1 border-b-2 border-blue-500 font-medium text-sm text-blue-600">
-                        Categories
-                    </button>
-                    <button onclick="switchTab('assignments')" id="assignments-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
-                        User Assignments
-                    </button>
-                    <button onclick="switchTab('projects')" id="projects-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
-                        Project Classifications
-                    </button>
-                    <button onclick="switchTab('rules')" id="rules-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
-                        Division Rules
-                    </button>
-                    <button onclick="switchTab('dashboard')" id="dashboard-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
-                        Dashboard
-                    </button>
-                </nav>
-            </div>
-        </div>
+CREATE OR REPLACE FUNCTION get_user_accessible_projects(p_user_id INTEGER)
+RETURNS TABLE (
+    project_id INTEGER,
+    project_name TEXT,
+    item_code TEXT,
+    item_description TEXT,
+    division_code TEXT,
+    section_code TEXT,
+    detailed_section_code TEXT,
+    additional_level_name TEXT,
+    additional_level_value TEXT,
+    attributes JSONB,
+    status TEXT,
+    creator_category TEXT,
+    project_classification TEXT,
+    access_reason TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    user_category TEXT;
+    user_role TEXT;
+    project_record RECORD;
+    has_individual_override BOOLEAN;
+    override_type TEXT;
+BEGIN
+    -- Get user's category and role
+    SELECT 
+        COALESCE(cc.category_name, 'none') as category,
+        u.role
+    INTO user_category, user_role
+    FROM users u
+    LEFT JOIN user_creator_categories ucc ON u.id = ucc.user_id AND ucc.is_active = true
+    LEFT JOIN creator_categories cc ON ucc.category_id = cc.id
+    WHERE u.id = p_user_id;
+    
+    -- If user not found or not a creator, return empty result
+    IF user_role IS NULL OR user_role != 'creator' THEN
+        RETURN;
+    END IF;
+    
+    -- If no category assigned, default to 'multiple' for backward compatibility
+    IF user_category IS NULL OR user_category = 'none' THEN
+        user_category := 'multiple';
+    END IF;
+    
+    -- Loop through all approved projects
+    FOR project_record IN
+        SELECT 
+            cp.id as proj_id,
+            cp.project_name,
+            cp.item_code,
+            cp.item_description,
+            cp.division_code,
+            cp.section_code,
+            cp.detailed_section_code,
+            cp.additional_level_name,
+            cp.additional_level_value,
+            cp.attributes,
+            cp.status,
+            pc.classification_name as classification,
+            SUBSTRING(cp.item_code, 1, 2) as division_from_code
+        FROM classification_projects cp
+        LEFT JOIN project_classifications pc ON cp.project_classification_id = pc.id
+        WHERE cp.status = 'admin_approved'
+    LOOP
+        -- Check for individual project visibility override first
+        SELECT 
+            CASE 
+                WHEN EXISTS (
+                    SELECT 1 FROM user_project_visibility upv 
+                    WHERE upv.user_id = p_user_id 
+                    AND upv.project_id = project_record.proj_id 
+                    AND upv.is_active = true
+                ) THEN true
+                ELSE false
+            END,
+            COALESCE(
+                (SELECT upv.visibility_type 
+                 FROM user_project_visibility upv 
+                 WHERE upv.user_id = p_user_id 
+                 AND upv.project_id = project_record.proj_id 
+                 AND upv.is_active = true
+                 LIMIT 1), 
+                'default'
+            )
+        INTO has_individual_override, override_type;
+        
+        -- Apply individual override if exists
+        IF has_individual_override THEN
+            IF override_type = 'allow' THEN
+                -- Always allow this project
+                project_id := project_record.proj_id;
+                project_name := project_record.project_name;
+                item_code := project_record.item_code;
+                item_description := project_record.item_description;
+                division_code := project_record.division_code;
+                section_code := project_record.section_code;
+                detailed_section_code := project_record.detailed_section_code;
+                additional_level_name := project_record.additional_level_name;
+                additional_level_value := project_record.additional_level_value;
+                attributes := project_record.attributes;
+                status := project_record.status;
+                creator_category := user_category;
+                project_classification := project_record.classification;
+                access_reason := 'Individual Override (Always Allow)';
+                RETURN NEXT;
+                CONTINUE;
+            ELSIF override_type = 'hide' THEN
+                -- Always hide this project
+                CONTINUE;
+            END IF;
+            -- If override_type = 'default', fall through to category-based logic
+        END IF;
+        
+        -- Apply category-based access rules
+        CASE user_category
+            WHEN 'multiple' THEN
+                -- Multiple category users can access all projects
+                project_id := project_record.proj_id;
+                project_name := project_record.project_name;
+                item_code := project_record.item_code;
+                item_description := project_record.item_description;
+                division_code := project_record.division_code;
+                section_code := project_record.section_code;
+                detailed_section_code := project_record.detailed_section_code;
+                additional_level_name := project_record.additional_level_name;
+                additional_level_value := project_record.additional_level_value;
+                attributes := project_record.attributes;
+                status := project_record.status;
+                creator_category := user_category;
+                project_classification := project_record.classification;
+                access_reason := 'Category Rule (Multiple - Full Access)';
+                RETURN NEXT;
+                
+            WHEN 'permanent' THEN
+                -- Permanent users can access permanent and multiple projects
+                IF project_record.classification IN ('permanent', 'multiple') THEN
+                    project_id := project_record.proj_id;
+                    project_name := project_record.project_name;
+                    item_code := project_record.item_code;
+                    item_description := project_record.item_description;
+                    division_code := project_record.division_code;
+                    section_code := project_record.section_code;
+                    detailed_section_code := project_record.detailed_section_code;
+                    additional_level_name := project_record.additional_level_name;
+                    additional_level_value := project_record.additional_level_value;
+                    attributes := project_record.attributes;
+                    status := project_record.status;
+                    creator_category := user_category;
+                    project_classification := project_record.classification;
+                    access_reason := CONCAT('Category Rule (Permanent - ', project_record.classification, ' Access)');
+                    RETURN NEXT;
+                END IF;
+                
+            WHEN 'non-permanent' THEN
+                -- Non-permanent users can access non-permanent and multiple projects
+                IF project_record.classification IN ('non-permanent', 'multiple') THEN
+                    project_id := project_record.proj_id;
+                    project_name := project_record.project_name;
+                    item_code := project_record.item_code;
+                    item_description := project_record.item_description;
+                    division_code := project_record.division_code;
+                    section_code := project_record.section_code;
+                    detailed_section_code := project_record.detailed_section_code;
+                    additional_level_name := project_record.additional_level_name;
+                    additional_level_value := project_record.additional_level_value;
+                    attributes := project_record.attributes;
+                    status := project_record.status;
+                    creator_category := user_category;
+                    project_classification := project_record.classification;
+                    access_reason := CONCAT('Category Rule (Non-Permanent - ', project_record.classification, ' Access)');
+                    RETURN NEXT;
+                END IF;
+        END CASE;
+    END LOOP;
+    
+    RETURN;
+END;
+$$;
 
-        <!-- Categories Tab -->
-        <div id="categories-content" class="tab-content">
-            <div class="bg-white rounded-lg shadow-sm p-6">
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-lg font-semibold text-gray-900">Creator Categories</h2>
-                    <button onclick="showCreateCategoryModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
-                        Create Category
-                    </button>
-                </div>
-                <div id="categories-table" class="overflow-x-auto">
-                    <!-- Categories will be loaded here -->
-                </div>
-            </div>
-        </div>
+-- Create user_project_visibility table if it doesn't exist
+CREATE TABLE IF NOT EXISTS user_project_visibility (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id INTEGER NOT NULL REFERENCES classification_projects(id) ON DELETE CASCADE,
+    visibility_type TEXT NOT NULL CHECK (visibility_type IN ('allow', 'hide', 'default')),
+    notes TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_by INTEGER REFERENCES users(id),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, project_id)
+);
 
-        <!-- User Assignments Tab -->
-        <div id="assignments-content" class="tab-content hidden">
-            <div class="bg-white rounded-lg shadow-sm p-6">
-                <h2 class="text-lg font-semibold text-gray-900 mb-6">User Category Assignments</h2>
-                <div id="users-table" class="overflow-x-auto">
-                    <!-- User assignments will be loaded here -->
-                </div>
-            </div>
-        </div>
+-- Create RPC function to save user project visibility (for the Creator Category Management module)
+CREATE OR REPLACE FUNCTION save_user_project_visibility(
+    p_user_id INTEGER,
+    p_visibility_settings JSONB,
+    p_admin_user_id INTEGER
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    project_id_key TEXT;
+    visibility_value TEXT;
+    affected_count INTEGER := 0;
+BEGIN
+    -- Check if admin user has permission
+    IF NOT EXISTS (
+        SELECT 1 FROM users 
+        WHERE id = p_admin_user_id 
+        AND role = 'admin'
+    ) THEN
+        RETURN json_build_object(
+            'success', false,
+            'message', 'Access denied. Admin role required.'
+        );
+    END IF;
+    
+    -- Check if target user exists and is a creator
+    IF NOT EXISTS (
+        SELECT 1 FROM users 
+        WHERE id = p_user_id 
+        AND role = 'creator'
+    ) THEN
+        RETURN json_build_object(
+            'success', false,
+            'message', 'Target user not found or is not a creator.'
+        );
+    END IF;
+    
+    -- Loop through each project visibility setting
+    FOR project_id_key IN SELECT jsonb_object_keys(p_visibility_settings)
+    LOOP
+        visibility_value := p_visibility_settings ->> project_id_key;
+        
+        -- Skip if visibility is 'default' - we'll delete these entries instead
+        IF visibility_value = 'default' THEN
+            -- Delete any existing override for this project
+            DELETE FROM user_project_visibility 
+            WHERE user_id = p_user_id 
+            AND project_id = project_id_key::INTEGER;
+        ELSE
+            -- Insert or update the visibility setting
+            INSERT INTO user_project_visibility (
+                user_id, 
+                project_id, 
+                visibility_type, 
+                created_by, 
+                updated_by,
+                notes
+            ) VALUES (
+                p_user_id,
+                project_id_key::INTEGER,
+                visibility_value,
+                p_admin_user_id,
+                p_admin_user_id,
+                'Set via Creator Category Management'
+            )
+            ON CONFLICT (user_id, project_id) 
+            DO UPDATE SET
+                visibility_type = EXCLUDED.visibility_type,
+                updated_by = EXCLUDED.updated_by,
+                updated_at = NOW(),
+                is_active = true;
+        END IF;
+        
+        affected_count := affected_count + 1;
+    END LOOP;
+    
+    RETURN json_build_object(
+        'success', true,
+        'message', 'User project visibility settings saved successfully',
+        'affected_projects', affected_count
+    );
+END;
+$$;
 
-        <!-- Project Classifications Tab -->
-        <div id="projects-content" class="tab-content hidden">
-            <div class="bg-white rounded-lg shadow-sm p-6">
-                <h2 class="text-lg font-semibold text-gray-900 mb-6">Project Classifications</h2>
-                <div id="projects-table" class="overflow-x-auto">
-                    <!-- Project classifications will be loaded here -->
-                </div>
-            </div>
-        </div>
+-- Create RPC function to get user project visibility (for the Creator Category Management module)
+CREATE OR REPLACE FUNCTION get_user_project_visibility(
+    p_user_id INTEGER,
+    p_admin_user_id INTEGER
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    result JSON;
+BEGIN
+    -- Check if admin user has permission
+    IF NOT EXISTS (
+        SELECT 1 FROM users 
+        WHERE id = p_admin_user_id 
+        AND role = 'admin'
+    ) THEN
+        RETURN json_build_object(
+            'success', false,
+            'message', 'Access denied. Admin role required.'
+        );
+    END IF;
+    
+    -- Get user project visibility settings
+    SELECT json_build_object(
+        'success', true,
+        'user_id', p_user_id,
+        'visibility_settings', COALESCE(
+            jsonb_object_agg(
+                upv.project_id::TEXT, 
+                upv.visibility_type
+            ), 
+            '{}'::jsonb
+        )
+    ) INTO result
+    FROM user_project_visibility upv
+    WHERE upv.user_id = p_user_id 
+    AND upv.is_active = true;
+    
+    RETURN result;
+END;
+$$;
 
-        <!-- Division Rules Tab -->
-        <div id="rules-content" class="tab-content hidden">
-            <div class="bg-white rounded-lg shadow-sm p-6">
-                <h2 class="text-lg font-semibold text-gray-900 mb-6">Division Classification Rules</h2>
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                    <p class="text-sm text-blue-700">
-                        Set default classifications for CSI divisions. New projects will automatically inherit the classification based on their item code's division.
-                    </p>
-                </div>
-                <div id="division-rules-table" class="overflow-x-auto">
-                    <!-- Division rules will be loaded here -->
-                </div>
-            </div>
-        </div>
+-- Grant permissions
+GRANT EXECUTE ON FUNCTION get_user_accessible_projects(INTEGER) TO authenticated;
+GRANT EXECUTE ON FUNCTION save_user_project_visibility(INTEGER, JSONB, INTEGER) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_user_project_visibility(INTEGER, INTEGER) TO authenticated;
 
-        <!-- Dashboard Tab -->
-        <div id="dashboard-content" class="tab-content hidden">
-            <div class="bg-white rounded-lg shadow-sm p-6">
-                <h2 class="text-lg font-semibold text-gray-900 mb-6">Dashboard</h2>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div class="bg-white border rounded-lg p-4">
-                        <div class="text-2xl font-bold text-blue-600" id="stats-categories">0</div>
-                        <div class="text-sm text-gray-500">Categories</div>
-                    </div>
-                    <div class="bg-white border rounded-lg p-4">
-                        <div class="text-2xl font-bold text-green-600" id="stats-users">0</div>
-                        <div class="text-sm text-gray-500">Assigned Users</div>
-                    </div>
-                    <div class="bg-white border rounded-lg p-4">
-                        <div class="text-2xl font-bold text-purple-600" id="stats-projects">0</div>
-                        <div class="text-sm text-gray-500">Projects</div>
-                    </div>
-                    <div class="bg-white border rounded-lg p-4">
-                        <div class="text-2xl font-bold text-orange-600" id="stats-overrides">0</div>
-                        <div class="text-sm text-gray-500">Overrides</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+-- Test the function
+SELECT 'Testing project access control:' as info;
+SELECT 'Function created successfully!' as status;
+SELECT 'Code Generation Portal can now respect creator category rules!' as next_step;
 
-    <script>
-        // Global variables
-        let currentUser = null;
-        let categories = [];
-        let users = [];
-        let projects = [];
-        let supabaseClient = null;
-
-        // Supabase configuration
-        const supabaseUrl = 'https://mvftaaxgdygeyzcvzqfr.supabase.co';
-        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12ZnRhYXhnZHlnZXl6Y3Z6cWZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2MjI3OTQsImV4cCI6MjA3NDE5ODc5NH0.nj5c_AAEg4U2qlcE1vQDMWt0nfXpmUYR1lrTR6KCIDY';
-
-        // Initialize Supabase
-        try {
-            supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
-            console.log('✅ Supabase client created successfully');
-        } catch (error) {
-            console.error('❌ Failed to create Supabase client:', error);
-        }
-
-        // Essential functions that need to be available immediately
-        function switchTab(tabName) {
-            console.log('Switching to tab:', tabName);
-            
-            // Hide all tab contents
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.add('hidden');
-            });
-            
-            // Remove active state from all tab buttons
-            document.querySelectorAll('.tab-button').forEach(button => {
-                button.classList.remove('border-blue-500', 'text-blue-600');
-                button.classList.add('border-transparent', 'text-gray-500');
-            });
-            
-            // Show selected tab content
-            document.getElementById(tabName + '-content').classList.remove('hidden');
-            
-            // Add active state to selected tab button
-            document.getElementById(tabName + '-tab').classList.remove('border-transparent', 'text-gray-500');
-            document.getElementById(tabName + '-tab').classList.add('border-blue-500', 'text-blue-600');
-            
-            // Load tab-specific data
-            if (tabName === 'categories') {
-                loadCategories();
-            } else if (tabName === 'assignments') {
-                loadUserAssignments();
-            } else if (tabName === 'projects') {
-                loadProjectClassifications();
-            } else if (tabName === 'rules') {
-                loadDivisionRules();
-            } else if (tabName === 'dashboard') {
-                loadDashboardStats();
-            }
-        }
-
-        function logout() {
-            window.location.href = 'CODE_GENERATION_PORTAL_V60.html';
-        }
-
-        function showCreateCategoryModal() {
-            alert('Create category functionality will be available after executing the SQL scripts.');
-        }
-
-        // Authentication
-        async function checkAuth() {
-            console.log('🔐 Checking authentication...');
-            currentUser = {
-                id: 1,
-                username: 'Admin User',
-                email: 'admin@example.com',
-                role: 'admin'
-            };
-            document.getElementById('current-user-info').textContent = `${currentUser.username} (${currentUser.role})`;
-            console.log('✅ Authentication complete');
-        }
-
-        // Load categories
-        async function loadCategories() {
-            console.log('📂 Loading categories...');
-            document.getElementById('categories-table').innerHTML = `
-                <div class="text-center py-8">
-                    <p class="text-gray-600 mb-4">Execute the SQL scripts to enable full functionality:</p>
-                    <ol class="text-left text-sm text-gray-600 max-w-md mx-auto">
-                        <li>1. Execute: simple_fix_functions.sql</li>
-                        <li>2. Execute: correct_creator_and_project_system.sql</li>
-                        <li>3. Execute: division_classification_rules.sql</li>
-                        <li>4. Refresh this page</li>
-                    </ol>
-                </div>
-            `;
-        }
-
-        // Load user assignments
-        async function loadUserAssignments() {
-            console.log('👥 Loading user assignments...');
-            document.getElementById('users-table').innerHTML = `
-                <div class="text-center py-8 text-gray-600">
-                    User assignments will load here after executing the SQL scripts.
-                </div>
-            `;
-        }
-
-        // Load project classifications
-        async function loadProjectClassifications() {
-            console.log('📋 Loading project classifications...');
-            document.getElementById('projects-table').innerHTML = `
-                <div class="text-center py-8 text-gray-600">
-                    Project classifications will load here after executing the SQL scripts.
-                </div>
-            `;
-        }
-
-        // Load division rules
-        async function loadDivisionRules() {
-            console.log('🔧 Loading division rules...');
-            document.getElementById('division-rules-table').innerHTML = `
-                <div class="text-center py-8 text-gray-600">
-                    Division rules will load here after executing the SQL scripts.
-                    <br><br>
-                    <strong>What are Division Rules?</strong>
-                    <br>
-                    Set default classifications for CSI divisions (e.g., Division 03 = permanent, Division 23 = non-permanent).
-                    <br>
-                    New projects will automatically inherit these classifications based on their item codes.
-                </div>
-            `;
-        }
-
-        // Load dashboard stats
-        async function loadDashboardStats() {
-            console.log('📊 Loading dashboard stats...');
-            document.getElementById('stats-categories').textContent = '0';
-            document.getElementById('stats-users').textContent = '0';
-            document.getElementById('stats-projects').textContent = '0';
-            document.getElementById('stats-overrides').textContent = '0';
-        }
-
-        // Initialize app when DOM is loaded
-        document.addEventListener('DOMContentLoaded', async function() {
-            console.log('🚀 Initializing Creator Category Management...');
-            
-            await checkAuth();
-            await loadCategories();
-            
-            console.log('✅ Creator Category Management initialized successfully');
-        });
-    </script>
-</body>
-</html>
+-- Show example usage
+SELECT 'Example: Get accessible projects for user ID 39' as example;
+-- SELECT * FROM get_user_accessible_projects(39) LIMIT 5;

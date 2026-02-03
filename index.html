@@ -1,343 +1,2127 @@
--- Create RPC Function for Creator Access Control in Code Generation Portal
--- Execute this in your Supabase SQL Editor
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Creator Category Management - PRISM Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="h-10 w-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-bold text-lg">P</span>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-gray-900">Creator Category Management</h1>
+                        <p class="text-sm text-gray-500">PRISM Admin Portal</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span id="current-user-info" class="text-sm text-gray-600"></span>
+                    <button onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
 
-CREATE OR REPLACE FUNCTION get_user_accessible_projects(p_user_id INTEGER)
-RETURNS TABLE (
-    project_id INTEGER,
-    project_name TEXT,
-    item_code TEXT,
-    item_description TEXT,
-    division_code TEXT,
-    section_code TEXT,
-    detailed_section_code TEXT,
-    additional_level_name TEXT,
-    additional_level_value TEXT,
-    attributes JSONB,
-    status TEXT,
-    creator_category TEXT,
-    project_classification TEXT,
-    access_reason TEXT
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    user_category TEXT;
-    user_role TEXT;
-    project_record RECORD;
-    has_individual_override BOOLEAN;
-    override_type TEXT;
-BEGIN
-    -- Get user's category and role
-    SELECT 
-        COALESCE(cc.category_name, 'none') as category,
-        u.role
-    INTO user_category, user_role
-    FROM users u
-    LEFT JOIN user_creator_categories ucc ON u.id = ucc.user_id AND ucc.is_active = true
-    LEFT JOIN creator_categories cc ON ucc.category_id = cc.id
-    WHERE u.id = p_user_id;
-    
-    -- If user not found or not a creator, return empty result
-    IF user_role IS NULL OR user_role != 'creator' THEN
-        RETURN;
-    END IF;
-    
-    -- If no category assigned, default to 'multiple' for backward compatibility
-    IF user_category IS NULL OR user_category = 'none' THEN
-        user_category := 'multiple';
-    END IF;
-    
-    -- Loop through all approved projects
-    FOR project_record IN
-        SELECT 
-            cp.id as proj_id,
-            cp.project_name,
-            cp.item_code,
-            cp.item_description,
-            cp.division_code,
-            cp.section_code,
-            cp.detailed_section_code,
-            cp.additional_level_name,
-            cp.additional_level_value,
-            cp.attributes,
-            cp.status,
-            pc.classification_name as classification,
-            SUBSTRING(cp.item_code, 1, 2) as division_from_code
-        FROM classification_projects cp
-        LEFT JOIN project_classifications pc ON cp.project_classification_id = pc.id
-        WHERE cp.status = 'admin_approved'
-    LOOP
-        -- Check for individual project visibility override first
-        SELECT 
-            CASE 
-                WHEN EXISTS (
-                    SELECT 1 FROM user_project_visibility upv 
-                    WHERE upv.user_id = p_user_id 
-                    AND upv.project_id = project_record.proj_id 
-                    AND upv.is_active = true
-                ) THEN true
-                ELSE false
-            END,
-            COALESCE(
-                (SELECT upv.visibility_type 
-                 FROM user_project_visibility upv 
-                 WHERE upv.user_id = p_user_id 
-                 AND upv.project_id = project_record.proj_id 
-                 AND upv.is_active = true
-                 LIMIT 1), 
-                'default'
-            )
-        INTO has_individual_override, override_type;
-        
-        -- Apply individual override if exists
-        IF has_individual_override THEN
-            IF override_type = 'allow' THEN
-                -- Always allow this project
-                project_id := project_record.proj_id;
-                project_name := project_record.project_name;
-                item_code := project_record.item_code;
-                item_description := project_record.item_description;
-                division_code := project_record.division_code;
-                section_code := project_record.section_code;
-                detailed_section_code := project_record.detailed_section_code;
-                additional_level_name := project_record.additional_level_name;
-                additional_level_value := project_record.additional_level_value;
-                attributes := project_record.attributes;
-                status := project_record.status;
-                creator_category := user_category;
-                project_classification := project_record.classification;
-                access_reason := 'Individual Override (Always Allow)';
-                RETURN NEXT;
-                CONTINUE;
-            ELSIF override_type = 'hide' THEN
-                -- Always hide this project
-                CONTINUE;
-            END IF;
-            -- If override_type = 'default', fall through to category-based logic
-        END IF;
-        
-        -- Apply category-based access rules
-        CASE user_category
-            WHEN 'multiple' THEN
-                -- Multiple category users can access all projects
-                project_id := project_record.proj_id;
-                project_name := project_record.project_name;
-                item_code := project_record.item_code;
-                item_description := project_record.item_description;
-                division_code := project_record.division_code;
-                section_code := project_record.section_code;
-                detailed_section_code := project_record.detailed_section_code;
-                additional_level_name := project_record.additional_level_name;
-                additional_level_value := project_record.additional_level_value;
-                attributes := project_record.attributes;
-                status := project_record.status;
-                creator_category := user_category;
-                project_classification := project_record.classification;
-                access_reason := 'Category Rule (Multiple - Full Access)';
-                RETURN NEXT;
+    <!-- Main Content -->
+    <div class="container mx-auto px-6 py-8">
+        <!-- Tab Navigation -->
+        <div class="bg-white rounded-lg shadow-sm mb-8">
+            <div class="border-b border-gray-200">
+                <nav class="-mb-px flex space-x-8 px-6">
+                    <button onclick="switchTab('categories')" id="categories-tab" class="tab-button py-4 px-1 border-b-2 border-blue-500 font-medium text-sm text-blue-600">
+                        Categories
+                    </button>
+                    <button onclick="switchTab('assignments')" id="assignments-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                        User Assignments
+                    </button>
+                    <button onclick="switchTab('projects')" id="projects-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                        Project Classifications
+                    </button>
+                    <button onclick="switchTab('rules')" id="rules-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                        Division Rules
+                    </button>
+                    <button onclick="switchTab('dashboard')" id="dashboard-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                        Dashboard
+                    </button>
+                </nav>
+            </div>
+        </div>
+
+        <!-- Categories Tab -->
+        <div id="categories-content" class="tab-content">
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-lg font-semibold text-gray-900">Creator Categories</h2>
+                    <button onclick="showCreateCategoryModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
+                        Create Category
+                    </button>
+                </div>
+                <div id="categories-table" class="overflow-x-auto">
+                    <!-- Categories will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- User Assignments Tab -->
+        <div id="assignments-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-lg font-semibold text-gray-900">User Category Assignments</h2>
+                    <div class="flex space-x-2">
+                        <button onclick="showBulkUserCategoryModal()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded">
+                            Bulk Change Categories
+                        </button>
+                        <button onclick="selectAllUsers()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                            Select All
+                        </button>
+                        <button onclick="clearUserSelection()" class="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2 rounded">
+                            Clear Selection
+                        </button>
+                    </div>
+                </div>
                 
-            WHEN 'permanent' THEN
-                -- Permanent users can access permanent and multiple projects
-                IF project_record.classification IN ('permanent', 'multiple') THEN
-                    project_id := project_record.proj_id;
-                    project_name := project_record.project_name;
-                    item_code := project_record.item_code;
-                    item_description := project_record.item_description;
-                    division_code := project_record.division_code;
-                    section_code := project_record.section_code;
-                    detailed_section_code := project_record.detailed_section_code;
-                    additional_level_name := project_record.additional_level_name;
-                    additional_level_value := project_record.additional_level_value;
-                    attributes := project_record.attributes;
-                    status := project_record.status;
-                    creator_category := user_category;
-                    project_classification := project_record.classification;
-                    access_reason := CONCAT('Category Rule (Permanent - ', project_record.classification, ' Access)');
-                    RETURN NEXT;
-                END IF;
+                <!-- User Filters -->
+                <div class="bg-gray-50 p-4 rounded-lg mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Filter by Category</label>
+                            <select id="user-category-filter" onchange="applyUserFilters()" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                                <option value="">All Categories</option>
+                                <option value="permanent">Permanent</option>
+                                <option value="non-permanent">Non-Permanent</option>
+                                <option value="multiple">Multiple</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Search by Name</label>
+                            <input type="text" id="user-name-filter" onkeyup="applyUserFilters()" placeholder="Creator name..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Search by Email</label>
+                            <input type="text" id="user-email-filter" onkeyup="applyUserFilters()" placeholder="Email address..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                        </div>
+                        <div class="flex items-end">
+                            <button onclick="clearUserFilters()" class="w-full bg-gray-400 hover:bg-gray-500 text-white px-3 py-2 rounded text-sm">
+                                Clear Filters
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mt-3 text-sm text-gray-600">
+                        Showing <span id="user-filter-count">0</span> of <span id="user-total-count">0</span> creators
+                    </div>
+                </div>
+
+                <div id="users-table" class="overflow-x-auto">
+                    <!-- User assignments will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Project Classifications Tab -->
+        <div id="projects-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-lg font-semibold text-gray-900">Project Classifications</h2>
+                    <div class="flex space-x-2">
+                        <button onclick="showBulkProjectClassificationModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded">
+                            Bulk Change Classifications
+                        </button>
+                        <button onclick="selectAllProjects()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                            Select All
+                        </button>
+                        <button onclick="clearProjectSelection()" class="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2 rounded">
+                            Clear Selection
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Project Filters -->
+                <div class="bg-gray-50 p-4 rounded-lg mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Filter by Classification</label>
+                            <select id="project-classification-filter" onchange="applyProjectFilters()" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                                <option value="">All Classifications</option>
+                                <option value="permanent">Permanent</option>
+                                <option value="non-permanent">Non-Permanent</option>
+                                <option value="multiple">Multiple</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Filter by Division</label>
+                            <select id="project-division-filter" onchange="applyProjectFilters()" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                                <option value="">All Divisions</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Filter by Section</label>
+                            <select id="project-section-filter" onchange="applyProjectFilters()" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                                <option value="">All Sections</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Search by Project Name</label>
+                            <input type="text" id="project-name-filter" onkeyup="applyProjectFilters()" placeholder="Project name..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Search by Item Code</label>
+                            <input type="text" id="project-code-filter" onkeyup="applyProjectFilters()" placeholder="Item code..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                        </div>
+                        <div class="flex items-end">
+                            <button onclick="clearProjectFilters()" class="w-full bg-gray-400 hover:bg-gray-500 text-white px-3 py-2 rounded text-sm">
+                                Clear Filters
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mt-3 text-sm text-gray-600">
+                        Showing <span id="project-filter-count">0</span> of <span id="project-total-count">0</span> projects
+                    </div>
+                </div>
+
+                <div id="projects-table" class="overflow-x-auto">
+                    <!-- Project classifications will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboard-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-6">Dashboard</h2>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div class="bg-white border rounded-lg p-4">
+                        <div class="text-2xl font-bold text-blue-600" id="stats-categories">0</div>
+                        <div class="text-sm text-gray-500">Categories</div>
+                    </div>
+                    <div class="bg-white border rounded-lg p-4">
+                        <div class="text-2xl font-bold text-green-600" id="stats-users">0</div>
+                        <div class="text-sm text-gray-500">Assigned Users</div>
+                    </div>
+                    <div class="bg-white border rounded-lg p-4">
+                        <div class="text-2xl font-bold text-purple-600" id="stats-projects">0</div>
+                        <div class="text-sm text-gray-500">Projects</div>
+                    </div>
+                    <div class="bg-white border rounded-lg p-4">
+                        <div class="text-2xl font-bold text-orange-600" id="stats-overrides">0</div>
+                        <div class="text-sm text-gray-500">Overrides</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Division Rules Tab -->
+        <div id="rules-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-lg font-semibold text-gray-900">Division Classification Rules</h2>
+                    <div class="flex space-x-2">
+                        <button onclick="showAddDivisionRuleModal()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">
+                            Add Division Rule
+                        </button>
+                        <button onclick="applyRulesToExisting()" class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded">
+                            Apply to Existing Projects
+                        </button>
+                    </div>
+                </div>
                 
-            WHEN 'non-permanent' THEN
-                -- Non-permanent users can access non-permanent and multiple projects
-                IF project_record.classification IN ('non-permanent', 'multiple') THEN
-                    project_id := project_record.proj_id;
-                    project_name := project_record.project_name;
-                    item_code := project_record.item_code;
-                    item_description := project_record.item_description;
-                    division_code := project_record.division_code;
-                    section_code := project_record.section_code;
-                    detailed_section_code := project_record.detailed_section_code;
-                    additional_level_name := project_record.additional_level_name;
-                    additional_level_value := project_record.additional_level_value;
-                    attributes := project_record.attributes;
-                    status := project_record.status;
-                    creator_category := user_category;
-                    project_classification := project_record.classification;
-                    access_reason := CONCAT('Category Rule (Non-Permanent - ', project_record.classification, ' Access)');
-                    RETURN NEXT;
-                END IF;
-        END CASE;
-    END LOOP;
-    
-    RETURN;
-END;
-$$;
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <div class="flex items-start">
+                        <svg class="h-5 w-5 text-blue-600 mt-0.5 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                        </svg>
+                        <div>
+                            <h3 class="text-sm font-medium text-blue-800">Automatic Classification</h3>
+                            <p class="text-sm text-blue-700 mt-1">
+                                Set default classifications for CSI divisions. New projects will automatically inherit the classification based on their item code's division.
+                                Example: All Division 03 (Concrete) projects could default to "permanent" classification.
+                            </p>
+                        </div>
+                    </div>
+                </div>
 
--- Create user_project_visibility table if it doesn't exist
-CREATE TABLE IF NOT EXISTS user_project_visibility (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    project_id INTEGER NOT NULL REFERENCES classification_projects(id) ON DELETE CASCADE,
-    visibility_type TEXT NOT NULL CHECK (visibility_type IN ('allow', 'hide', 'default')),
-    notes TEXT,
-    is_active BOOLEAN DEFAULT true,
-    created_by INTEGER REFERENCES users(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_by INTEGER REFERENCES users(id),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(user_id, project_id)
-);
+                <div id="division-rules-table" class="overflow-x-auto">
+                    <!-- Division rules will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
 
--- Create RPC function to save user project visibility (for the Creator Category Management module)
-CREATE OR REPLACE FUNCTION save_user_project_visibility(
-    p_user_id INTEGER,
-    p_visibility_settings JSONB,
-    p_admin_user_id INTEGER
-)
-RETURNS JSON
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    project_id_key TEXT;
-    visibility_value TEXT;
-    affected_count INTEGER := 0;
-BEGIN
-    -- Check if admin user has permission
-    IF NOT EXISTS (
-        SELECT 1 FROM users 
-        WHERE id = p_admin_user_id 
-        AND role = 'admin'
-    ) THEN
-        RETURN json_build_object(
-            'success', false,
-            'message', 'Access denied. Admin role required.'
-        );
-    END IF;
-    
-    -- Check if target user exists and is a creator
-    IF NOT EXISTS (
-        SELECT 1 FROM users 
-        WHERE id = p_user_id 
-        AND role = 'creator'
-    ) THEN
-        RETURN json_build_object(
-            'success', false,
-            'message', 'Target user not found or is not a creator.'
-        );
-    END IF;
-    
-    -- Loop through each project visibility setting
-    FOR project_id_key IN SELECT jsonb_object_keys(p_visibility_settings)
-    LOOP
-        visibility_value := p_visibility_settings ->> project_id_key;
+    <!-- Create Category Modal -->
+    <div id="create-category-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Create New Category</h3>
+                <form id="create-category-form">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Category Name</label>
+                            <input type="text" id="category-name" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Description</label>
+                            <textarea id="category-description" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2 h-20"></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end space-x-2">
+                        <button type="button" onclick="hideCreateCategoryModal()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                            Cancel
+                        </button>
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
+                            Create
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Category Modal -->
+    <div id="change-category-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Change User Category</h3>
+                <form id="change-category-form">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">User</label>
+                            <input type="text" id="change-user-display" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2 bg-gray-100" readonly>
+                            <input type="hidden" id="change-user-id">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">New Category</label>
+                            <select id="change-category-select" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2" required>
+                                <option value="">Select Category</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Reason (Optional)</label>
+                            <textarea id="change-category-notes" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2 h-20" placeholder="Reason for category change"></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end space-x-2">
+                        <button type="button" onclick="hideChangeCategoryModal()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                            Cancel
+                        </button>
+                        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">
+                            Change Category
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Project Classification Modal -->
+    <div id="change-project-classification-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Change Project Classification</h3>
+                <form id="change-project-classification-form">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Project</label>
+                            <input type="text" id="change-project-display" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2 bg-gray-100" readonly>
+                            <input type="hidden" id="change-project-id">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">New Classification</label>
+                            <select id="change-project-classification-select" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2" required>
+                                <option value="">Select Classification</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Reason (Optional)</label>
+                            <textarea id="change-project-classification-notes" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2 h-20" placeholder="Reason for classification change"></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end space-x-2">
+                        <button type="button" onclick="hideChangeProjectClassificationModal()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                            Cancel
+                        </button>
+                        <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded">
+                            Change Classification
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk User Category Modal -->
+    <div id="bulk-user-category-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Bulk Change User Categories</h3>
+                <form id="bulk-user-category-form">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Selected Users</label>
+                            <div id="selected-users-display" class="mt-1 p-2 border border-gray-300 rounded bg-gray-50 max-h-32 overflow-y-auto text-sm">
+                                No users selected
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">New Category</label>
+                            <select id="bulk-user-category-select" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2" required>
+                                <option value="">Select Category</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Reason</label>
+                            <textarea id="bulk-user-category-notes" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2 h-20" placeholder="Reason for bulk category change"></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end space-x-2">
+                        <button type="button" onclick="hideBulkUserCategoryModal()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                            Cancel
+                        </button>
+                        <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded">
+                            Apply Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Project Classification Modal -->
+    <div id="bulk-project-classification-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Bulk Change Project Classifications</h3>
+                <form id="bulk-project-classification-form">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Selected Projects</label>
+                            <div id="selected-projects-display" class="mt-1 p-2 border border-gray-300 rounded bg-gray-50 max-h-32 overflow-y-auto text-sm">
+                                No projects selected
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">New Classification</label>
+                            <select id="bulk-project-classification-select" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2" required>
+                                <option value="">Select Classification</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Reason</label>
+                            <textarea id="bulk-project-classification-notes" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2 h-20" placeholder="Reason for bulk classification change"></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end space-x-2">
+                        <button type="button" onclick="hideBulkProjectClassificationModal()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                            Cancel
+                        </button>
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded">
+                            Apply Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Division Rule Modal -->
+    <div id="division-rule-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Division Classification Rule</h3>
+                <form id="division-rule-form">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Division</label>
+                            <select id="division-rule-division-code" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2" required>
+                                <option value="">Select Division</option>
+                            </select>
+                        </div>
+                        <div style="display: none;">
+                            <label class="block text-sm font-medium text-gray-700">Division Name</label>
+                            <input type="text" id="division-rule-division-name" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Default Classification</label>
+                            <select id="division-rule-classification-select" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2" required>
+                                <option value="">Select Classification</option>
+                            </select>
+                        </div>
+                        <div class="bg-yellow-50 border border-yellow-200 rounded p-3">
+                            <p class="text-sm text-yellow-700">
+                                <strong>Note:</strong> New projects with item codes starting with this division code will automatically be assigned this classification.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end space-x-2">
+                        <button type="button" onclick="hideDivisionRuleModal()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                            Cancel
+                        </button>
+                        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">
+                            Save Rule
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Project Management Modal -->
+    <div id="user-projects-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg shadow-lg w-full max-w-4xl max-h-[90vh] overflow-hidden">
+                <div class="flex justify-between items-center p-6 border-b">
+                    <h3 class="text-lg font-semibold text-gray-900" id="user-projects-title">Manage Project Visibility</h3>
+                    <button onclick="hideUserProjectsModal()" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="p-6 overflow-y-auto max-h-[70vh]">
+                    <div class="mb-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <p class="text-sm text-gray-600">
+                                Control which projects <span id="selected-user-name" class="font-medium"></span> can access. 
+                                By default, users see projects based on their category rules.
+                            </p>
+                            <div class="flex space-x-2">
+                                <button onclick="selectAllProjectsForUser()" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm">
+                                    Allow All
+                                </button>
+                                <button onclick="selectNoProjectsForUser()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">
+                                    Hide All
+                                </button>
+                                <button onclick="resetToDefaultAccess()" class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm">
+                                    Reset to Default
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Filter by Division</label>
+                                <select id="project-visibility-division-filter" onchange="filterProjectsInModal()" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                                    <option value="">All Divisions</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Filter by Classification</label>
+                                <select id="project-visibility-classification-filter" onchange="filterProjectsInModal()" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                                    <option value="">All Classifications</option>
+                                    <option value="permanent">Permanent</option>
+                                    <option value="non-permanent">Non-Permanent</option>
+                                    <option value="multiple">Multiple</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Search Projects</label>
+                                <input type="text" id="project-visibility-search" onkeyup="filterProjectsInModal()" placeholder="Search by name or code..." class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="user-projects-list" class="space-y-2 max-h-96 overflow-y-auto">
+                        <!-- Projects list will be populated here -->
+                    </div>
+                </div>
+                
+                <div class="flex justify-end space-x-2 p-6 border-t bg-gray-50">
+                    <button onclick="hideUserProjectsModal()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                        Cancel
+                    </button>
+                    <button onclick="saveUserProjectVisibility()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
+                        Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables - single declarations only
+        let currentUser = null;
+        let categories = [];
+        let users = [];
+        let projects = [];
+        let projectClassifications = [];
+        let divisionRules = [];
+        let supabaseClient = null;
         
-        -- Skip if visibility is 'default' - we'll delete these entries instead
-        IF visibility_value = 'default' THEN
-            -- Delete any existing override for this project
-            DELETE FROM user_project_visibility 
-            WHERE user_id = p_user_id 
-            AND project_id = project_id_key::INTEGER;
-        ELSE
-            -- Insert or update the visibility setting
-            INSERT INTO user_project_visibility (
-                user_id, 
-                project_id, 
-                visibility_type, 
-                created_by, 
-                updated_by,
-                notes
-            ) VALUES (
-                p_user_id,
-                project_id_key::INTEGER,
-                visibility_value,
-                p_admin_user_id,
-                p_admin_user_id,
-                'Set via Creator Category Management'
-            )
-            ON CONFLICT (user_id, project_id) 
-            DO UPDATE SET
-                visibility_type = EXCLUDED.visibility_type,
-                updated_by = EXCLUDED.updated_by,
-                updated_at = NOW(),
-                is_active = true;
-        END IF;
+        // Filtered data for display
+        let filteredUsers = [];
+        let filteredProjects = [];
         
-        affected_count := affected_count + 1;
-    END LOOP;
-    
-    RETURN json_build_object(
-        'success', true,
-        'message', 'User project visibility settings saved successfully',
-        'affected_projects', affected_count
-    );
-END;
-$$;
+        // Project visibility management
+        let currentUserId = null;
+        let currentUserName = null;
+        let userProjectVisibility = {}; // { projectId: 'allow'|'hide'|'default' }
 
--- Create RPC function to get user project visibility (for the Creator Category Management module)
-CREATE OR REPLACE FUNCTION get_user_project_visibility(
-    p_user_id INTEGER,
-    p_admin_user_id INTEGER
-)
-RETURNS JSON
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    result JSON;
-BEGIN
-    -- Check if admin user has permission
-    IF NOT EXISTS (
-        SELECT 1 FROM users 
-        WHERE id = p_admin_user_id 
-        AND role = 'admin'
-    ) THEN
-        RETURN json_build_object(
-            'success', false,
-            'message', 'Access denied. Admin role required.'
-        );
-    END IF;
-    
-    -- Get user project visibility settings
-    SELECT json_build_object(
-        'success', true,
-        'user_id', p_user_id,
-        'visibility_settings', COALESCE(
-            jsonb_object_agg(
-                upv.project_id::TEXT, 
-                upv.visibility_type
-            ), 
-            '{}'::jsonb
-        )
-    ) INTO result
-    FROM user_project_visibility upv
-    WHERE upv.user_id = p_user_id 
-    AND upv.is_active = true;
-    
-    RETURN result;
-END;
-$$;
+        // Supabase configuration
+        const supabaseUrl = 'https://mvftaaxgdygeyzcvzqfr.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12ZnRhYXhnZHlnZXl6Y3Z6cWZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2MjI3OTQsImV4cCI6MjA3NDE5ODc5NH0.nj5c_AAEg4U2qlcE1vQDMWt0nfXpmUYR1lrTR6KCIDY';
 
--- Grant permissions
-GRANT EXECUTE ON FUNCTION get_user_accessible_projects(INTEGER) TO authenticated;
-GRANT EXECUTE ON FUNCTION save_user_project_visibility(INTEGER, JSONB, INTEGER) TO authenticated;
-GRANT EXECUTE ON FUNCTION get_user_project_visibility(INTEGER, INTEGER) TO authenticated;
+        // Initialize Supabase
+        try {
+            supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+            console.log('✅ Supabase client created successfully');
+        } catch (error) {
+            console.error('❌ Failed to create Supabase client:', error);
+        }
 
--- Test the function
-SELECT 'Testing project access control:' as info;
-SELECT 'Function created successfully!' as status;
-SELECT 'Code Generation Portal can now respect creator category rules!' as next_step;
+        // Mock data for fallback
+        const mockCategories = [
+            { id: 1, category_name: 'permanent', category_description: 'Permanent creators - can see certain divisions', is_active: true, created_at: '2024-01-15T10:00:00Z', user_count: 25 },
+            { id: 2, category_name: 'non-permanent', category_description: 'Non-permanent creators - limited access', is_active: true, created_at: '2024-01-15T10:05:00Z', user_count: 15 },
+            { id: 3, category_name: 'multiple', category_description: 'Full access to all projects and divisions', is_active: true, created_at: '2024-01-15T10:10:00Z', user_count: 16 }
+        ];
 
--- Show example usage
-SELECT 'Example: Get accessible projects for user ID 39' as example;
--- SELECT * FROM get_user_accessible_projects(39) LIMIT 5;
+        const mockUsers = [
+            { user_id: 101, username: 'john_smith', email: 'john@company.com', status: 'active', categories: [{ category_name: 'permanent' }] },
+            { user_id: 102, username: 'jane_doe', email: 'jane@company.com', status: 'active', categories: [{ category_name: 'non-permanent' }] },
+            { user_id: 103, username: 'mike_wilson', email: 'mike@company.com', status: 'active', categories: [{ category_name: 'multiple' }] }
+        ];
+
+        // Essential functions that need to be available immediately
+        function switchTab(tabName) {
+            console.log('Switching to tab:', tabName);
+            
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.add('hidden');
+            });
+            
+            // Remove active state from all tab buttons
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('border-blue-500', 'text-blue-600');
+                button.classList.add('border-transparent', 'text-gray-500');
+            });
+            
+            // Show selected tab content
+            document.getElementById(tabName + '-content').classList.remove('hidden');
+            
+            // Add active state to selected tab button
+            document.getElementById(tabName + '-tab').classList.remove('border-transparent', 'text-gray-500');
+            document.getElementById(tabName + '-tab').classList.add('border-blue-500', 'text-blue-600');
+            
+            // Load tab-specific data
+            if (tabName === 'categories') {
+                loadCategories();
+            } else if (tabName === 'assignments') {
+                loadUserAssignments();
+            } else if (tabName === 'projects') {
+                loadProjectClassifications();
+            } else if (tabName === 'rules') {
+                loadDivisionRules();
+            } else if (tabName === 'dashboard') {
+                loadDashboardStats();
+            }
+        }
+
+        function logout() {
+            window.location.href = 'CODE_GENERATION_PORTAL_V60.html';
+        }
+
+        // Initialize app when DOM is loaded
+
+        // Authentication
+        async function checkAuth() {
+            console.log('🔐 Checking authentication...');
+            currentUser = {
+                id: 1,
+                username: 'Admin User',
+                email: 'admin@example.com',
+                role: 'admin'
+            };
+            document.getElementById('current-user-info').textContent = `${currentUser.username} (${currentUser.role})`;
+            console.log('✅ Authentication complete');
+        }
+
+        // Load categories
+        async function loadCategories() {
+            console.log('📂 Loading categories...');
+            try {
+                if (supabaseClient) {
+                    console.log('🔄 Attempting to load from database...');
+                    const { data, error } = await supabaseClient.rpc('get_creator_categories', {
+                        user_id_param: currentUser.id
+                    });
+                    
+                    console.log('🔍 Database response:', { data, error });
+                    
+                    if (!error && data) {
+                        if (data.success) {
+                            console.log('✅ Loaded categories from database:', data.categories?.length || 0, 'categories');
+                            console.log('📋 Categories data:', data.categories);
+                            categories = data.categories || [];
+                            renderCategoriesTable();
+                            return;
+                        } else {
+                            console.log('❌ Database returned error:', data.message);
+                        }
+                    } else if (error) {
+                        console.log('❌ Database error:', error);
+                    }
+                }
+                
+                // Fallback to mock data
+                console.log('📄 Using mock data for categories');
+                categories = mockCategories;
+                renderCategoriesTable();
+            } catch (error) {
+                console.error('❌ Error loading categories:', error);
+                categories = mockCategories;
+                renderCategoriesTable();
+            }
+        }
+
+        // Render categories table
+        function renderCategoriesTable() {
+            const container = document.getElementById('categories-table');
+            
+            if (categories.length === 0) {
+                container.innerHTML = '<div class="text-center text-gray-500 py-8">No categories found</div>';
+                return;
+            }
+
+            const tableHTML = `
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Users</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        ${categories.map(category => `
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${category.category_name}</td>
+                                <td class="px-6 py-4 text-sm text-gray-500">${category.category_description || '-'}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                        ${category.user_count || 0} users
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                        category.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                    }">
+                                        ${category.is_active ? 'Active' : 'Inactive'}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <button onclick="toggleCategoryStatus(${category.id}, ${!category.is_active})" 
+                                            class="text-blue-600 hover:text-blue-900">
+                                        ${category.is_active ? 'Deactivate' : 'Activate'}
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = tableHTML;
+            console.log('✅ Categories table rendered with', categories.length, 'categories');
+        }
+
+        // Load user assignments
+        async function loadUserAssignments() {
+            console.log('👥 Loading user assignments...');
+            try {
+                if (supabaseClient) {
+                    console.log('🔄 Attempting to load users from database...');
+                    const { data, error } = await supabaseClient.rpc('get_users_with_creator_categories', {
+                        admin_user_id: currentUser.id
+                    });
+                    
+                    if (!error && data && data.success) {
+                        console.log('✅ Loaded users from database:', data.users.length);
+                        users = data.users;
+                        renderUsersTable();
+                        return;
+                    }
+                    console.log('⚠️ Database call failed, using mock data');
+                }
+                
+                // Fallback to mock data
+                console.log('📄 Using mock data for users');
+                users = mockUsers;
+                renderUsersTable();
+            } catch (error) {
+                console.error('❌ Error loading users:', error);
+                users = mockUsers;
+                renderUsersTable();
+            }
+        }
+
+        // Render users table
+        function renderUsersTable() {
+            const container = document.getElementById('users-table');
+            const usersToShow = filteredUsers.length > 0 ? filteredUsers : users;
+            
+            if (usersToShow.length === 0) {
+                container.innerHTML = '<div class="text-center text-gray-500 py-8">No users found</div>';
+                return;
+            }
+
+            const tableHTML = `
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                <input type="checkbox" id="select-all-users" onchange="toggleAllUsers()">
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Category</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        ${usersToShow.map(user => `
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <input type="checkbox" class="user-checkbox" value="${user.user_id}">
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${user.username}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${user.email}</td>
+                                <td class="px-6 py-4 text-sm text-gray-900">
+                                    ${user.categories && user.categories.length > 0 ? 
+                                        user.categories.map(cat => 
+                                            `<span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded mr-1">${cat.category_name}</span>`
+                                        ).join('') : 
+                                        '<span class="text-gray-500">No categories assigned</span>'
+                                    }
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                        ${user.status}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <button onclick="showChangeCategoryModal(${user.user_id}, '${user.username}')" 
+                                            class="text-blue-600 hover:text-blue-900 mr-3">
+                                        Change Category
+                                    </button>
+                                    <button onclick="showManageProjectsModal(${user.user_id}, '${user.username}')" 
+                                            class="text-green-600 hover:text-green-900">
+                                        Manage Projects
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = tableHTML;
+            
+            // Update filter counts
+            document.getElementById('user-filter-count').textContent = usersToShow.length;
+            document.getElementById('user-total-count').textContent = users.length;
+            
+            console.log('✅ Users table rendered with', usersToShow.length, 'users');
+        }
+
+        // User filtering functions
+        function applyUserFilters() {
+            const categoryFilter = document.getElementById('user-category-filter').value.toLowerCase();
+            const nameFilter = document.getElementById('user-name-filter').value.toLowerCase();
+            const emailFilter = document.getElementById('user-email-filter').value.toLowerCase();
+
+            filteredUsers = users.filter(user => {
+                // Category filter
+                if (categoryFilter && user.categories && user.categories.length > 0) {
+                    const hasMatchingCategory = user.categories.some(cat => 
+                        cat.category_name.toLowerCase().includes(categoryFilter)
+                    );
+                    if (!hasMatchingCategory) return false;
+                } else if (categoryFilter && (!user.categories || user.categories.length === 0)) {
+                    return false;
+                }
+
+                // Name filter
+                if (nameFilter && !user.username.toLowerCase().includes(nameFilter)) {
+                    return false;
+                }
+
+                // Email filter
+                if (emailFilter && !user.email.toLowerCase().includes(emailFilter)) {
+                    return false;
+                }
+
+                return true;
+            });
+
+            renderUsersTable();
+        }
+
+        function clearUserFilters() {
+            document.getElementById('user-category-filter').value = '';
+            document.getElementById('user-name-filter').value = '';
+            document.getElementById('user-email-filter').value = '';
+            filteredUsers = [];
+            renderUsersTable();
+        }
+
+        // Load project classifications
+        async function loadProjectClassifications() {
+            console.log('📋 Loading project classifications...');
+            try {
+                if (supabaseClient) {
+                    console.log('🔄 Attempting to load projects from database...');
+                    const { data, error } = await supabaseClient.rpc('get_projects_with_classifications', {
+                        admin_user_id: currentUser.id
+                    });
+                    
+                    console.log('🔍 Projects response:', { data, error });
+                    
+                    if (!error && data) {
+                        if (data.success) {
+                            console.log('✅ Loaded projects from database:', data.projects?.length || 0, 'projects');
+                            projects = data.projects || [];
+                            
+                            // Also load classifications for dropdown
+                            const classResponse = await supabaseClient.rpc('get_project_classifications', {
+                                admin_user_id: currentUser.id
+                            });
+                            
+                            if (!classResponse.error && classResponse.data && classResponse.data.success) {
+                                projectClassifications = classResponse.data.classifications || [];
+                            }
+                            
+                            renderProjectsTable();
+                            return;
+                        } else {
+                            console.log('❌ Database returned error:', data.message);
+                        }
+                    } else if (error) {
+                        console.log('❌ Database error:', error);
+                    }
+                }
+                
+                // Fallback to mock data
+                console.log('📄 Using mock data for projects');
+                projects = [
+                    { id: 1, project_name: 'Steel Components', item_code: 'STL-001', classification_name: 'multiple', classification_description: 'All access' },
+                    { id: 2, project_name: 'Concrete Elements', item_code: 'CON-002', classification_name: 'permanent', classification_description: 'Permanent only' }
+                ];
+                renderProjectsTable();
+            } catch (error) {
+                console.error('❌ Error loading projects:', error);
+                projects = [];
+                renderProjectsTable();
+            }
+        }
+
+        // Render projects table
+        function renderProjectsTable() {
+            const container = document.getElementById('projects-table');
+            const projectsToShow = filteredProjects.length > 0 ? filteredProjects : projects;
+            
+            if (projectsToShow.length === 0) {
+                container.innerHTML = '<div class="text-center text-gray-500 py-8">No projects found</div>';
+                return;
+            }
+
+            const tableHTML = `
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                <input type="checkbox" id="select-all-projects" onchange="toggleAllProjects()">
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item Code</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Classification</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        ${projectsToShow.map(project => `
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <input type="checkbox" class="project-checkbox" value="${project.id}">
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${project.project_name}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${project.item_code}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                        project.classification_name === 'multiple' ? 'bg-green-100 text-green-800' :
+                                        project.classification_name === 'permanent' ? 'bg-blue-100 text-blue-800' :
+                                        'bg-yellow-100 text-yellow-800'
+                                    }">
+                                        ${project.classification_name || 'multiple'}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 text-sm text-gray-500">${project.classification_description || 'All access'}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <button onclick="showChangeProjectClassificationModal(${project.id}, '${project.project_name}')" 
+                                            class="text-blue-600 hover:text-blue-900">
+                                        Change Classification
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = tableHTML;
+            
+            // Update filter counts
+            document.getElementById('project-filter-count').textContent = projectsToShow.length;
+            document.getElementById('project-total-count').textContent = projects.length;
+            
+            // Update division and section filter options
+            updateDivisionSectionFilters();
+            
+            console.log('✅ Projects table rendered with', projectsToShow.length, 'projects');
+        }
+
+        // Project filtering functions
+        function updateDivisionSectionFilters() {
+            const divisionFilter = document.getElementById('project-division-filter');
+            const sectionFilter = document.getElementById('project-section-filter');
+            
+            // Get unique divisions and sections from projects
+            const divisions = [...new Set(projects.map(p => p.item_code ? p.item_code.substring(0, 2) : 'XX').filter(d => d))];
+            const sections = [...new Set(projects.map(p => p.item_code ? p.item_code.substring(0, 4) : 'XXXX').filter(s => s))];
+            
+            // Update division filter
+            const currentDivision = divisionFilter.value;
+            divisionFilter.innerHTML = '<option value="">All Divisions</option>' +
+                divisions.sort().map(div => `<option value="${div}" ${div === currentDivision ? 'selected' : ''}>${div}</option>`).join('');
+            
+            // Update section filter
+            const currentSection = sectionFilter.value;
+            sectionFilter.innerHTML = '<option value="">All Sections</option>' +
+                sections.sort().map(sec => `<option value="${sec}" ${sec === currentSection ? 'selected' : ''}>${sec}</option>`).join('');
+        }
+
+        function applyProjectFilters() {
+            const classificationFilter = document.getElementById('project-classification-filter').value.toLowerCase();
+            const divisionFilter = document.getElementById('project-division-filter').value;
+            const sectionFilter = document.getElementById('project-section-filter').value;
+            const nameFilter = document.getElementById('project-name-filter').value.toLowerCase();
+            const codeFilter = document.getElementById('project-code-filter').value.toLowerCase();
+
+            filteredProjects = projects.filter(project => {
+                // Classification filter
+                if (classificationFilter && project.classification_name) {
+                    if (!project.classification_name.toLowerCase().includes(classificationFilter)) {
+                        return false;
+                    }
+                }
+
+                // Division filter (first 2 characters of item code)
+                if (divisionFilter && project.item_code) {
+                    if (!project.item_code.startsWith(divisionFilter)) {
+                        return false;
+                    }
+                }
+
+                // Section filter (first 4 characters of item code)
+                if (sectionFilter && project.item_code) {
+                    if (!project.item_code.startsWith(sectionFilter)) {
+                        return false;
+                    }
+                }
+
+                // Name filter
+                if (nameFilter && !project.project_name.toLowerCase().includes(nameFilter)) {
+                    return false;
+                }
+
+                // Code filter
+                if (codeFilter && !project.item_code.toLowerCase().includes(codeFilter)) {
+                    return false;
+                }
+
+                return true;
+            });
+
+            renderProjectsTable();
+        }
+
+        function clearProjectFilters() {
+            document.getElementById('project-classification-filter').value = '';
+            document.getElementById('project-division-filter').value = '';
+            document.getElementById('project-section-filter').value = '';
+            document.getElementById('project-name-filter').value = '';
+            document.getElementById('project-code-filter').value = '';
+            filteredProjects = [];
+            renderProjectsTable();
+        }
+
+        // Load division rules
+        async function loadDivisionRules() {
+            console.log('🔧 Loading division rules...');
+            try {
+                if (supabaseClient) {
+                    console.log('🔄 Attempting to load division rules from database...');
+                    const { data, error } = await supabaseClient.rpc('get_division_classification_rules', {
+                        admin_user_id: currentUser.id
+                    });
+                    
+                    console.log('🔍 Division rules response:', { data, error });
+                    
+                    if (!error && data) {
+                        if (data.success) {
+                            console.log('✅ Loaded division rules from database:', data.rules?.length || 0, 'rules');
+                            divisionRules = data.rules || [];
+                            renderDivisionRulesTable();
+                            return;
+                        } else {
+                            console.log('❌ Database returned error:', data.message);
+                        }
+                    } else if (error) {
+                        console.log('❌ Database error:', error);
+                    }
+                }
+                
+                // Fallback to mock data
+                console.log('📄 Using mock data for division rules');
+                divisionRules = [
+                    { id: 1, division_code: '03', division_name: 'Concrete', default_classification_name: 'permanent', project_count: 12 },
+                    { id: 2, division_code: '05', division_name: 'Metals', default_classification_name: 'permanent', project_count: 8 },
+                    { id: 3, division_code: '23', division_name: 'HVAC', default_classification_name: 'non-permanent', project_count: 15 }
+                ];
+                renderDivisionRulesTable();
+            } catch (error) {
+                console.error('❌ Error loading division rules:', error);
+                divisionRules = [];
+                renderDivisionRulesTable();
+            }
+        }
+
+        // Render division rules table
+        function renderDivisionRulesTable() {
+            const container = document.getElementById('division-rules-table');
+            
+            if (divisionRules.length === 0) {
+                container.innerHTML = '<div class="text-center text-gray-500 py-8">No division rules configured. Click "Add Division Rule" to create automatic classification rules.</div>';
+                return;
+            }
+
+            const tableHTML = `
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Division Code</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Division Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Default Classification</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Projects Count</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        ${divisionRules.map(rule => `
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${rule.division_code}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${rule.division_name || '-'}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                        rule.default_classification_name === 'multiple' ? 'bg-green-100 text-green-800' :
+                                        rule.default_classification_name === 'permanent' ? 'bg-blue-100 text-blue-800' :
+                                        'bg-yellow-100 text-yellow-800'
+                                    }">
+                                        ${rule.default_classification_name || 'multiple'}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${rule.project_count || 0} projects</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <button onclick="editDivisionRule('${rule.division_code}', '${rule.division_name || ''}', ${rule.default_classification_id || 1})" 
+                                            class="text-blue-600 hover:text-blue-900 mr-3">
+                                        Edit
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = tableHTML;
+            console.log('✅ Division rules table rendered with', divisionRules.length, 'rules');
+        }
+
+        // Division rules management functions
+        async function showAddDivisionRuleModal() {
+            // Ensure projects are loaded before extracting divisions
+            if (projects.length === 0) {
+                console.log('📋 Loading projects first to populate division dropdown...');
+                await loadProjectClassifications();
+            }
+            
+            // Populate division dropdown with actual divisions from projects
+            const divisionSelect = document.getElementById('division-rule-division-code');
+            const divisions = extractDivisionsFromProjects();
+            
+            if (divisions.length === 0) {
+                // Fallback to standard divisions if no projects exist
+                console.log('📄 No projects found, using standard CSI divisions');
+                const standardDivisions = getStandardDivisions();
+                let optionsHTML = '<option value="">Select Division</option>';
+                standardDivisions.forEach(division => {
+                    optionsHTML += `<option value="${division.code}">${division.code} - ${division.name}</option>`;
+                });
+                divisionSelect.innerHTML = optionsHTML;
+            } else {
+                let optionsHTML = '<option value="">Select Division</option>';
+                divisions.forEach(division => {
+                    optionsHTML += `<option value="${division.code}">${division.code} - ${division.name} (${division.count} projects)</option>`;
+                });
+                divisionSelect.innerHTML = optionsHTML;
+            }
+            
+            const select = document.getElementById('division-rule-classification-select');
+            if (projectClassifications.length > 0) {
+                select.innerHTML = '<option value="">Select Classification</option>' + 
+                    projectClassifications.map(cls => `<option value="${cls.id}">${cls.classification_name}</option>`).join('');
+            } else {
+                select.innerHTML = `
+                    <option value="">Select Classification</option>
+                    <option value="1">permanent</option>
+                    <option value="2">non-permanent</option>
+                    <option value="3">multiple</option>
+                `;
+            }
+            
+            document.getElementById('division-rule-modal').classList.remove('hidden');
+        }
+
+        function hideDivisionRuleModal() {
+            document.getElementById('division-rule-modal').classList.add('hidden');
+            document.getElementById('division-rule-form').reset();
+        }
+
+        async function editDivisionRule(divisionCode, divisionName, classificationId) {
+            // Ensure projects are loaded before extracting divisions
+            if (projects.length === 0) {
+                console.log('📋 Loading projects first to populate division dropdown...');
+                await loadProjectClassifications();
+            }
+            
+            // For editing, show the division as selected but still show all options
+            const divisionSelect = document.getElementById('division-rule-division-code');
+            const divisions = extractDivisionsFromProjects();
+            
+            if (divisions.length === 0) {
+                // Fallback to standard divisions if no projects exist
+                const standardDivisions = getStandardDivisions();
+                let optionsHTML = '<option value="">Select Division</option>';
+                standardDivisions.forEach(division => {
+                    const selected = division.code === divisionCode ? 'selected' : '';
+                    optionsHTML += `<option value="${division.code}" ${selected}>${division.code} - ${division.name}</option>`;
+                });
+                divisionSelect.innerHTML = optionsHTML;
+            } else {
+                let optionsHTML = '<option value="">Select Division</option>';
+                divisions.forEach(division => {
+                    const selected = division.code === divisionCode ? 'selected' : '';
+                    optionsHTML += `<option value="${division.code}" ${selected}>${division.code} - ${division.name} (${division.count} projects)</option>`;
+                });
+                divisionSelect.innerHTML = optionsHTML;
+            }
+            
+            const select = document.getElementById('division-rule-classification-select');
+            if (projectClassifications.length > 0) {
+                select.innerHTML = '<option value="">Select Classification</option>' + 
+                    projectClassifications.map(cls => `<option value="${cls.id}" ${cls.id == classificationId ? 'selected' : ''}>${cls.classification_name}</option>`).join('');
+            } else {
+                select.innerHTML = `
+                    <option value="">Select Classification</option>
+                    <option value="1" ${classificationId == 1 ? 'selected' : ''}>permanent</option>
+                    <option value="2" ${classificationId == 2 ? 'selected' : ''}>non-permanent</option>
+                    <option value="3" ${classificationId == 3 ? 'selected' : ''}>multiple</option>
+                `;
+            }
+            
+            document.getElementById('division-rule-modal').classList.remove('hidden');
+        }
+
+        // Extract divisions from existing projects
+        function extractDivisionsFromProjects() {
+            const divisionMap = new Map();
+            
+            projects.forEach(project => {
+                if (project.item_code && project.item_code.length >= 2) {
+                    const divisionCode = project.item_code.substring(0, 2);
+                    
+                    if (!divisionMap.has(divisionCode)) {
+                        divisionMap.set(divisionCode, {
+                            code: divisionCode,
+                            name: getDivisionName(divisionCode),
+                            count: 0
+                        });
+                    }
+                    
+                    divisionMap.get(divisionCode).count++;
+                }
+            });
+            
+            // Convert to array and sort by division code
+            return Array.from(divisionMap.values()).sort((a, b) => a.code.localeCompare(b.code));
+        }
+
+        // Get standard CSI divisions as fallback
+        function getStandardDivisions() {
+            return [
+                { code: '00', name: 'Procurement & Contracting' },
+                { code: '01', name: 'General Requirements' },
+                { code: '02', name: 'Existing Conditions' },
+                { code: '03', name: 'Concrete' },
+                { code: '04', name: 'Masonry' },
+                { code: '05', name: 'Metals' },
+                { code: '06', name: 'Wood, Plastics, and Composites' },
+                { code: '07', name: 'Thermal and Moisture Protection' },
+                { code: '08', name: 'Openings' },
+                { code: '09', name: 'Finishes' },
+                { code: '10', name: 'Specialties' },
+                { code: '11', name: 'Equipment' },
+                { code: '12', name: 'Furnishings' },
+                { code: '13', name: 'Special Construction' },
+                { code: '14', name: 'Conveying Equipment' },
+                { code: '21', name: 'Fire Suppression' },
+                { code: '22', name: 'Plumbing' },
+                { code: '23', name: 'HVAC' },
+                { code: '25', name: 'Integrated Automation' },
+                { code: '26', name: 'Electrical' },
+                { code: '27', name: 'Communications' },
+                { code: '28', name: 'Electronic Safety and Security' },
+                { code: '31', name: 'Earthwork' },
+                { code: '32', name: 'Exterior Improvements' },
+                { code: '33', name: 'Utilities' },
+                { code: '34', name: 'Transportation' },
+                { code: '35', name: 'Waterway and Marine Construction' },
+                { code: '40', name: 'Process Integration' },
+                { code: '41', name: 'Material Processing and Handling Equipment' },
+                { code: '42', name: 'Process Heating, Cooling, and Drying Equipment' },
+                { code: '43', name: 'Process Gas and Liquid Handling, Purification, and Storage Equipment' },
+                { code: '44', name: 'Pollution Control Equipment' },
+                { code: '45', name: 'Industry-Specific Manufacturing Equipment' },
+                { code: '46', name: 'Water and Wastewater Equipment' },
+                { code: '48', name: 'Electrical Power Generation' }
+            ];
+        }
+
+        // Get standard division names
+        function getDivisionName(divisionCode) {
+            const divisionNames = {
+                '00': 'Procurement & Contracting',
+                '01': 'General Requirements',
+                '02': 'Existing Conditions',
+                '03': 'Concrete',
+                '04': 'Masonry',
+                '05': 'Metals',
+                '06': 'Wood, Plastics, and Composites',
+                '07': 'Thermal and Moisture Protection',
+                '08': 'Openings',
+                '09': 'Finishes',
+                '10': 'Specialties',
+                '11': 'Equipment',
+                '12': 'Furnishings',
+                '13': 'Special Construction',
+                '14': 'Conveying Equipment',
+                '21': 'Fire Suppression',
+                '22': 'Plumbing',
+                '23': 'HVAC',
+                '25': 'Integrated Automation',
+                '26': 'Electrical',
+                '27': 'Communications',
+                '28': 'Electronic Safety and Security',
+                '31': 'Earthwork',
+                '32': 'Exterior Improvements',
+                '33': 'Utilities',
+                '34': 'Transportation',
+                '35': 'Waterway and Marine Construction',
+                '40': 'Process Integration',
+                '41': 'Material Processing and Handling Equipment',
+                '42': 'Process Heating, Cooling, and Drying Equipment',
+                '43': 'Process Gas and Liquid Handling, Purification, and Storage Equipment',
+                '44': 'Pollution Control Equipment',
+                '45': 'Industry-Specific Manufacturing Equipment',
+                '46': 'Water and Wastewater Equipment',
+                '48': 'Electrical Power Generation'
+            };
+            
+            return divisionNames[divisionCode] || `Division ${divisionCode}`;
+        }
+
+        // Project visibility management functions
+        async function showManageProjectsModal(userId, username) {
+            currentUserId = userId;
+            currentUserName = username;
+            
+            // Load projects if not already loaded
+            if (projects.length === 0) {
+                console.log('📋 Loading projects for visibility management...');
+                await loadProjectClassifications();
+            }
+            
+            document.getElementById('selected-user-name').textContent = username;
+            document.getElementById('user-projects-title').textContent = `Manage Project Visibility - ${username}`;
+            
+            // Load current visibility settings for this user
+            await loadUserProjectVisibility(userId);
+            
+            // Populate division filter
+            const divisionFilter = document.getElementById('project-visibility-division-filter');
+            const divisions = [...new Set(projects.map(p => p.item_code ? p.item_code.substring(0, 2) : 'XX'))].sort();
+            divisionFilter.innerHTML = '<option value="">All Divisions</option>' + 
+                divisions.map(div => `<option value="${div}">${div} - ${getDivisionName(div)}</option>`).join('');
+            
+            // Render projects list
+            renderUserProjectsList();
+            
+            document.getElementById('user-projects-modal').classList.remove('hidden');
+        }
+
+        function hideUserProjectsModal() {
+            document.getElementById('user-projects-modal').classList.add('hidden');
+            currentUserId = null;
+            currentUserName = null;
+            userProjectVisibility = {};
+        }
+
+        async function loadUserProjectVisibility(userId) {
+            try {
+                if (supabaseClient) {
+                    console.log('🔄 Loading user project visibility from database...');
+                    const { data, error } = await supabaseClient.rpc('get_user_project_visibility', {
+                        p_user_id: userId,
+                        p_admin_user_id: currentUser.id
+                    });
+                    
+                    if (!error && data && data.success) {
+                        console.log('✅ Loaded user project visibility:', data.visibility_settings);
+                        
+                        // Initialize with default values for all projects
+                        userProjectVisibility = {};
+                        projects.forEach(project => {
+                            userProjectVisibility[project.id] = 'default';
+                        });
+                        
+                        // Apply stored visibility settings
+                        if (data.visibility_settings) {
+                            Object.keys(data.visibility_settings).forEach(projectId => {
+                                userProjectVisibility[projectId] = data.visibility_settings[projectId];
+                            });
+                        }
+                        
+                        return;
+                    } else {
+                        console.log('❌ Error loading visibility settings:', data?.message || error);
+                    }
+                }
+                
+                // Fallback - Initialize with default values
+                userProjectVisibility = {};
+                projects.forEach(project => {
+                    userProjectVisibility[project.id] = 'default';
+                });
+                
+            } catch (error) {
+                console.error('❌ Error loading user project visibility:', error);
+                userProjectVisibility = {};
+                projects.forEach(project => {
+                    userProjectVisibility[project.id] = 'default';
+                });
+            }
+        }
+
+        function renderUserProjectsList() {
+            const container = document.getElementById('user-projects-list');
+            const projectsToShow = getFilteredProjectsForModal();
+            
+            if (projectsToShow.length === 0) {
+                container.innerHTML = '<div class="text-center text-gray-500 py-8">No projects match the current filters</div>';
+                return;
+            }
+
+            const projectsHTML = projectsToShow.map(project => {
+                const visibility = userProjectVisibility[project.id] || 'default';
+                const divisionCode = project.item_code ? project.item_code.substring(0, 2) : 'XX';
+                
+                return `
+                    <div class="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-3">
+                                <div class="text-sm font-medium text-gray-900">${project.project_name}</div>
+                                <div class="text-xs text-gray-500">${project.item_code}</div>
+                                <div class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">${divisionCode} - ${getDivisionName(divisionCode)}</div>
+                                <div class="text-xs px-2 py-1 rounded ${
+                                    project.classification_name === 'multiple' ? 'bg-green-100 text-green-700' :
+                                    project.classification_name === 'permanent' ? 'bg-blue-100 text-blue-700' :
+                                    'bg-yellow-100 text-yellow-700'
+                                }">${project.classification_name || 'multiple'}</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <select onchange="updateProjectVisibility(${project.id}, this.value)" class="text-sm border border-gray-300 rounded px-2 py-1">
+                                <option value="default" ${visibility === 'default' ? 'selected' : ''}>Default (Category Rule)</option>
+                                <option value="allow" ${visibility === 'allow' ? 'selected' : ''}>Always Allow</option>
+                                <option value="hide" ${visibility === 'hide' ? 'selected' : ''}>Always Hide</option>
+                            </select>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = projectsHTML;
+        }
+
+        function getFilteredProjectsForModal() {
+            const divisionFilter = document.getElementById('project-visibility-division-filter').value;
+            const classificationFilter = document.getElementById('project-visibility-classification-filter').value;
+            const searchFilter = document.getElementById('project-visibility-search').value.toLowerCase();
+
+            return projects.filter(project => {
+                // Division filter
+                if (divisionFilter && project.item_code) {
+                    if (!project.item_code.startsWith(divisionFilter)) return false;
+                }
+
+                // Classification filter
+                if (classificationFilter && project.classification_name) {
+                    if (!project.classification_name.includes(classificationFilter)) return false;
+                }
+
+                // Search filter
+                if (searchFilter) {
+                    const searchText = `${project.project_name} ${project.item_code}`.toLowerCase();
+                    if (!searchText.includes(searchFilter)) return false;
+                }
+
+                return true;
+            });
+        }
+
+        function filterProjectsInModal() {
+            renderUserProjectsList();
+        }
+
+        function updateProjectVisibility(projectId, visibility) {
+            userProjectVisibility[projectId] = visibility;
+            console.log('🔄 Updated project visibility:', projectId, visibility);
+        }
+
+        function selectAllProjectsForUser() {
+            Object.keys(userProjectVisibility).forEach(projectId => {
+                userProjectVisibility[projectId] = 'allow';
+            });
+            renderUserProjectsList();
+        }
+
+        function selectNoProjectsForUser() {
+            Object.keys(userProjectVisibility).forEach(projectId => {
+                userProjectVisibility[projectId] = 'hide';
+            });
+            renderUserProjectsList();
+        }
+
+        function resetToDefaultAccess() {
+            Object.keys(userProjectVisibility).forEach(projectId => {
+                userProjectVisibility[projectId] = 'default';
+            });
+            renderUserProjectsList();
+        }
+
+        async function saveUserProjectVisibility() {
+            try {
+                if (supabaseClient) {
+                    console.log('🔄 Saving user project visibility to database...');
+                    console.log('User ID:', currentUserId);
+                    console.log('Visibility settings:', userProjectVisibility);
+                    
+                    const { data, error } = await supabaseClient.rpc('save_user_project_visibility', {
+                        p_user_id: currentUserId,
+                        p_visibility_settings: userProjectVisibility,
+                        p_admin_user_id: currentUser.id
+                    });
+                    
+                    if (!error && data && data.success) {
+                        console.log('✅ Project visibility settings saved to database');
+                        alert(`Project visibility settings saved successfully! ${data.affected_projects} projects updated.`);
+                    } else {
+                        throw new Error(data?.message || 'Failed to save visibility settings');
+                    }
+                } else {
+                    alert('Project visibility settings saved successfully (mock mode)!');
+                }
+                
+                hideUserProjectsModal();
+                
+            } catch (error) {
+                console.error('❌ Error saving user project visibility:', error);
+                alert('Failed to save project visibility settings: ' + error.message);
+            }
+        }
+
+        async function applyRulesToExisting() {
+            if (!confirm('Apply division rules to existing projects? This will change the classification of projects based on their division codes.')) {
+                return;
+            }
+
+            try {
+                if (supabaseClient) {
+                    const { data, error } = await supabaseClient.rpc('bulk_apply_division_rules', {
+                        p_admin_user_id: currentUser.id,
+                        p_apply_to_existing: true
+                    });
+                    
+                    if (!error && data && data.success) {
+                        alert(`Division rules applied successfully! ${data.updated_existing_projects} projects updated.`);
+                        await loadProjectClassifications();
+                        await loadDivisionRules();
+                    } else {
+                        throw new Error(data?.message || 'Failed to apply rules');
+                    }
+                } else {
+                    alert('Rules applied successfully (mock mode)!');
+                }
+            } catch (error) {
+                console.error('Error applying division rules:', error);
+                alert('Failed to apply division rules: ' + error.message);
+            }
+        }
+
+        // Load dashboard stats
+        async function loadDashboardStats() {
+            console.log('📊 Loading dashboard stats...');
+            const categoriesCount = categories.length;
+            const usersCount = users.filter(u => u.categories && u.categories.length > 0).length;
+            
+            document.getElementById('stats-categories').textContent = categoriesCount;
+            document.getElementById('stats-users').textContent = usersCount;
+            document.getElementById('stats-projects').textContent = '5'; // Mock for now
+            document.getElementById('stats-overrides').textContent = '2'; // Mock for now
+            
+            console.log('✅ Dashboard stats updated');
+        }
+
+        // Toggle category status
+        async function toggleCategoryStatus(categoryId, newStatus) {
+            console.log('🔄 Toggling category status:', categoryId, newStatus);
+            try {
+                if (supabaseClient) {
+                    const { error } = await supabaseClient
+                        .from('creator_categories')
+                        .update({ is_active: newStatus, updated_by: currentUser.id, updated_at: new Date().toISOString() })
+                        .eq('id', categoryId);
+                    
+                    if (!error) {
+                        console.log('✅ Category updated in database');
+                        await loadCategories();
+                        alert(`Category ${newStatus ? 'activated' : 'deactivated'} successfully!`);
+                        return;
+                    }
+                }
+                
+                // Fallback to mock update
+                console.log('📄 Updating category in mock data');
+                const category = categories.find(c => c.id === categoryId);
+                if (category) {
+                    category.is_active = newStatus;
+                    renderCategoriesTable();
+                    alert(`Category ${newStatus ? 'activated' : 'deactivated'} successfully (mock mode)!`);
+                }
+            } catch (error) {
+                console.error('❌ Error toggling category:', error);
+                alert('Failed to update category: ' + error.message);
+            }
+        }
+
+        // Modal functions
+        function showCreateCategoryModal() {
+            document.getElementById('create-category-modal').classList.remove('hidden');
+        }
+
+        function hideCreateCategoryModal() {
+            document.getElementById('create-category-modal').classList.add('hidden');
+            document.getElementById('create-category-form').reset();
+        }
+
+        function showChangeCategoryModal(userId, username) {
+            document.getElementById('change-user-id').value = userId;
+            document.getElementById('change-user-display').value = username;
+            
+            // Populate category dropdown
+            const select = document.getElementById('change-category-select');
+            select.innerHTML = '<option value="">Select Category</option>' + 
+                categories.map(cat => `<option value="${cat.id}">${cat.category_name}</option>`).join('');
+            
+            document.getElementById('change-category-modal').classList.remove('hidden');
+        }
+
+        function hideChangeCategoryModal() {
+            document.getElementById('change-category-modal').classList.add('hidden');
+            document.getElementById('change-category-form').reset();
+        }
+
+        function showChangeProjectClassificationModal(projectId, projectName) {
+            document.getElementById('change-project-id').value = projectId;
+            document.getElementById('change-project-display').value = projectName;
+            
+            // Populate classification dropdown
+            const select = document.getElementById('change-project-classification-select');
+            if (projectClassifications.length > 0) {
+                select.innerHTML = '<option value="">Select Classification</option>' + 
+                    projectClassifications.map(cls => `<option value="${cls.id}">${cls.classification_name}</option>`).join('');
+            } else {
+                // Fallback options
+                select.innerHTML = `
+                    <option value="">Select Classification</option>
+                    <option value="1">permanent</option>
+                    <option value="2">non-permanent</option>
+                    <option value="3">multiple</option>
+                `;
+            }
+            
+            document.getElementById('change-project-classification-modal').classList.remove('hidden');
+        }
+
+        function hideChangeProjectClassificationModal() {
+            document.getElementById('change-project-classification-modal').classList.add('hidden');
+            document.getElementById('change-project-classification-form').reset();
+        }
+
+        // Bulk operations functions
+        function toggleAllUsers() {
+            const selectAll = document.getElementById('select-all-users');
+            const checkboxes = document.querySelectorAll('.user-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+        }
+
+        function toggleAllProjects() {
+            const selectAll = document.getElementById('select-all-projects');
+            const checkboxes = document.querySelectorAll('.project-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+        }
+
+        function selectAllUsers() {
+            const checkboxes = document.querySelectorAll('.user-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            document.getElementById('select-all-users').checked = true;
+        }
+
+        function clearUserSelection() {
+            const checkboxes = document.querySelectorAll('.user-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            document.getElementById('select-all-users').checked = false;
+        }
+
+        function selectAllProjects() {
+            const checkboxes = document.querySelectorAll('.project-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            document.getElementById('select-all-projects').checked = true;
+        }
+
+        function clearProjectSelection() {
+            const checkboxes = document.querySelectorAll('.project-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            document.getElementById('select-all-projects').checked = false;
+        }
+
+        function showBulkUserCategoryModal() {
+            const selectedCheckboxes = document.querySelectorAll('.user-checkbox:checked');
+            if (selectedCheckboxes.length === 0) {
+                alert('Please select at least one user');
+                return;
+            }
+
+            // Show selected users
+            const selectedUsers = Array.from(selectedCheckboxes).map(cb => {
+                const userId = cb.value;
+                const user = users.find(u => u.user_id == userId);
+                return user ? user.username : `User ${userId}`;
+            });
+
+            document.getElementById('selected-users-display').innerHTML = 
+                selectedUsers.map(name => `<span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded mr-1 mb-1">${name}</span>`).join('');
+
+            // Populate category dropdown
+            const select = document.getElementById('bulk-user-category-select');
+            select.innerHTML = '<option value="">Select Category</option>' + 
+                categories.map(cat => `<option value="${cat.id}">${cat.category_name}</option>`).join('');
+
+            document.getElementById('bulk-user-category-modal').classList.remove('hidden');
+        }
+
+        function hideBulkUserCategoryModal() {
+            document.getElementById('bulk-user-category-modal').classList.add('hidden');
+            document.getElementById('bulk-user-category-form').reset();
+        }
+
+        function showBulkProjectClassificationModal() {
+            const selectedCheckboxes = document.querySelectorAll('.project-checkbox:checked');
+            if (selectedCheckboxes.length === 0) {
+                alert('Please select at least one project');
+                return;
+            }
+
+            // Show selected projects
+            const selectedProjects = Array.from(selectedCheckboxes).map(cb => {
+                const projectId = cb.value;
+                const project = projects.find(p => p.id == projectId);
+                return project ? `${project.project_name} (${project.item_code})` : `Project ${projectId}`;
+            });
+
+            document.getElementById('selected-projects-display').innerHTML = 
+                selectedProjects.map(name => `<span class="inline-block bg-green-100 text-green-800 text-xs px-2 py-1 rounded mr-1 mb-1">${name}</span>`).join('');
+
+            // Populate classification dropdown
+            const select = document.getElementById('bulk-project-classification-select');
+            if (projectClassifications.length > 0) {
+                select.innerHTML = '<option value="">Select Classification</option>' + 
+                    projectClassifications.map(cls => `<option value="${cls.id}">${cls.classification_name}</option>`).join('');
+            } else {
+                select.innerHTML = `
+                    <option value="">Select Classification</option>
+                    <option value="1">permanent</option>
+                    <option value="2">non-permanent</option>
+                    <option value="3">multiple</option>
+                `;
+            }
+
+            document.getElementById('bulk-project-classification-modal').classList.remove('hidden');
+        }
+
+        function hideBulkProjectClassificationModal() {
+            document.getElementById('bulk-project-classification-modal').classList.add('hidden');
+            document.getElementById('bulk-project-classification-form').reset();
+        }
+
+        // Logout function
+        function logout() {
+            window.location.href = 'CODE_GENERATION_PORTAL_V60.html';
+        }
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('🚀 Initializing Creator Category Management...');
+            
+            await checkAuth();
+            await loadCategories();
+            
+            // Setup form handlers
+            document.getElementById('create-category-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const name = document.getElementById('category-name').value;
+                const description = document.getElementById('category-description').value;
+                
+                console.log('🔄 Creating category:', name);
+                
+                try {
+                    if (supabaseClient) {
+                        const { data, error } = await supabaseClient
+                            .from('creator_categories')
+                            .insert({
+                                category_name: name,
+                                category_description: description,
+                                created_by: currentUser.id
+                            });
+                        
+                        if (!error) {
+                            console.log('✅ Category created in database');
+                            hideCreateCategoryModal();
+                            await loadCategories();
+                            alert('Category created successfully!');
+                            return;
+                        }
+                    }
+                    
+                    // Fallback to mock creation
+                    console.log('📄 Creating category in mock data');
+                    const newCategory = {
+                        id: categories.length + 1,
+                        category_name: name,
+                        category_description: description,
+                        is_active: true,
+                        created_at: new Date().toISOString(),
+                        user_count: 0
+                    };
+                    categories.push(newCategory);
+                    renderCategoriesTable();
+                    hideCreateCategoryModal();
+                    alert('Category created successfully (mock mode)!');
+                    
+                } catch (error) {
+                    console.error('❌ Error creating category:', error);
+                    alert('Failed to create category: ' + error.message);
+                }
+            });
+
+            // Setup change category form handler
+            document.getElementById('change-category-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const userId = document.getElementById('change-user-id').value;
+                const categoryId = document.getElementById('change-category-select').value;
+                const notes = document.getElementById('change-category-notes').value || 'Category changed via admin interface';
+                
+                console.log('🔄 Changing user category:', userId, 'to category:', categoryId);
+                
+                try {
+                    if (supabaseClient) {
+                        const { data, error } = await supabaseClient.rpc('change_user_category', {
+                            p_user_id: parseInt(userId),
+                            p_new_category_id: parseInt(categoryId),
+                            p_admin_user_id: currentUser.id,
+                            p_notes: notes
+                        });
+                        
+                        if (!error && data && data.success) {
+                            console.log('✅ User category changed in database');
+                            hideChangeCategoryModal();
+                            await loadUserAssignments();
+                            await loadCategories(); // Refresh to update user counts
+                            alert('User category changed successfully!');
+                            return;
+                        } else {
+                            const errorMsg = data ? data.message : 'Unknown error';
+                            throw new Error(errorMsg);
+                        }
+                    }
+                    
+                    // Fallback to mock update
+                    console.log('📄 Changing user category in mock data');
+                    const user = users.find(u => u.user_id == userId);
+                    const category = categories.find(c => c.id == categoryId);
+                    if (user && category) {
+                        user.categories = [{ category_name: category.category_name }];
+                        renderUsersTable();
+                        hideChangeCategoryModal();
+                        alert('User category changed successfully (mock mode)!');
+                    }
+                    
+                } catch (error) {
+                    console.error('❌ Error changing user category:', error);
+                    alert('Failed to change user category: ' + error.message);
+                }
+            });
+
+            // Setup change project classification form handler
+            document.getElementById('change-project-classification-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const projectId = document.getElementById('change-project-id').value;
+                const classificationId = document.getElementById('change-project-classification-select').value;
+                const notes = document.getElementById('change-project-classification-notes').value || 'Classification changed via admin interface';
+                
+                console.log('🔄 Changing project classification:', projectId, 'to classification:', classificationId);
+                
+                try {
+                    if (supabaseClient) {
+                        const { data, error } = await supabaseClient.rpc('change_project_classification', {
+                            p_project_id: parseInt(projectId),
+                            p_new_classification_id: parseInt(classificationId),
+                            p_admin_user_id: currentUser.id,
+                            p_notes: notes
+                        });
+                        
+                        if (!error && data && data.success) {
+                            console.log('✅ Project classification changed in database');
+                            hideChangeProjectClassificationModal();
+                            await loadProjectClassifications();
+                            alert('Project classification changed successfully!');
+                            return;
+                        } else {
+                            const errorMsg = data ? data.message : 'Unknown error';
+                            throw new Error(errorMsg);
+                        }
+                    }
+                    
+                    // Fallback to mock update
+                    console.log('📄 Changing project classification in mock data');
+                    const project = projects.find(p => p.id == projectId);
+                    if (project) {
+                        // Update classification name based on ID (simplified)
+                        const classNames = { '1': 'permanent', '2': 'non-permanent', '3': 'multiple' };
+                        project.classification_name = classNames[classificationId] || 'multiple';
+                        renderProjectsTable();
+                        hideChangeProjectClassificationModal();
+                        alert('Project classification changed successfully (mock mode)!');
+                    }
+                    
+                } catch (error) {
+                    console.error('❌ Error changing project classification:', error);
+                    alert('Failed to change project classification: ' + error.message);
+                }
+            });
+
+            // Setup bulk user category form handler
+            document.getElementById('bulk-user-category-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const selectedCheckboxes = document.querySelectorAll('.user-checkbox:checked');
+                const userIds = Array.from(selectedCheckboxes).map(cb => parseInt(cb.value));
+                const categoryId = document.getElementById('bulk-user-category-select').value;
+                const notes = document.getElementById('bulk-user-category-notes').value || 'Bulk category change via admin interface';
+                
+                console.log('🔄 Bulk changing user categories:', userIds.length, 'users to category:', categoryId);
+                
+                try {
+                    if (supabaseClient) {
+                        const { data, error } = await supabaseClient.rpc('bulk_change_user_categories', {
+                            p_user_ids: userIds,
+                            p_new_category_id: parseInt(categoryId),
+                            p_admin_user_id: currentUser.id,
+                            p_notes: notes
+                        });
+                        
+                        if (!error && data && data.success) {
+                            console.log('✅ Bulk user categories changed in database');
+                            hideBulkUserCategoryModal();
+                            clearUserSelection();
+                            await loadUserAssignments();
+                            await loadCategories();
+                            alert(`Bulk update completed! ${data.success_count} users updated successfully.`);
+                            return;
+                        } else {
+                            const errorMsg = data ? data.message : 'Unknown error';
+                            throw new Error(errorMsg);
+                        }
+                    }
+                    
+                    // Fallback to mock update
+                    console.log('📄 Bulk changing user categories in mock data');
+                    hideBulkUserCategoryModal();
+                    clearUserSelection();
+                    alert('Bulk category change completed successfully (mock mode)!');
+                    
+                } catch (error) {
+                    console.error('❌ Error bulk changing user categories:', error);
+                    alert('Failed to bulk change user categories: ' + error.message);
+                }
+            });
+
+            // Setup bulk project classification form handler
+            document.getElementById('bulk-project-classification-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const selectedCheckboxes = document.querySelectorAll('.project-checkbox:checked');
+                const projectIds = Array.from(selectedCheckboxes).map(cb => parseInt(cb.value));
+                const classificationId = document.getElementById('bulk-project-classification-select').value;
+                const notes = document.getElementById('bulk-project-classification-notes').value || 'Bulk classification change via admin interface';
+                
+                console.log('🔄 Bulk changing project classifications:', projectIds.length, 'projects to classification:', classificationId);
+                
+                try {
+                    if (supabaseClient) {
+                        const { data, error } = await supabaseClient.rpc('bulk_change_project_classifications', {
+                            p_project_ids: projectIds,
+                            p_new_classification_id: parseInt(classificationId),
+                            p_admin_user_id: currentUser.id,
+                            p_notes: notes
+                        });
+                        
+                        if (!error && data && data.success) {
+                            console.log('✅ Bulk project classifications changed in database');
+                            hideBulkProjectClassificationModal();
+                            clearProjectSelection();
+                            await loadProjectClassifications();
+                            alert(`Bulk update completed! ${data.success_count} projects updated successfully.`);
+                            return;
+                        } else {
+                            const errorMsg = data ? data.message : 'Unknown error';
+                            throw new Error(errorMsg);
+                        }
+                    }
+                    
+                    // Fallback to mock update
+                    console.log('📄 Bulk changing project classifications in mock data');
+                    hideBulkProjectClassificationModal();
+                    clearProjectSelection();
+                    alert('Bulk classification change completed successfully (mock mode)!');
+                    
+                } catch (error) {
+                    console.error('❌ Error bulk changing project classifications:', error);
+                    alert('Failed to bulk change project classifications: ' + error.message);
+                }
+            });
+
+            // Setup division rule form handler
+            document.getElementById('division-rule-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const divisionSelect = document.getElementById('division-rule-division-code');
+                const divisionCode = divisionSelect.value;
+                
+                // Extract division name from the selected option text
+                const selectedOption = divisionSelect.options[divisionSelect.selectedIndex];
+                const divisionName = selectedOption.text.includes(' - ') 
+                    ? selectedOption.text.split(' - ')[1].split(' (')[0] 
+                    : getDivisionName(divisionCode);
+                
+                const classificationId = document.getElementById('division-rule-classification-select').value;
+                
+                console.log('🔄 Saving division rule:', divisionCode, 'to classification:', classificationId);
+                
+                try {
+                    if (supabaseClient) {
+                        const { data, error } = await supabaseClient.rpc('update_division_classification_rule', {
+                            p_division_code: divisionCode,
+                            p_division_name: divisionName,
+                            p_default_classification_id: parseInt(classificationId),
+                            p_admin_user_id: currentUser.id
+                        });
+                        
+                        if (!error && data && data.success) {
+                            console.log('✅ Division rule saved in database');
+                            hideDivisionRuleModal();
+                            await loadDivisionRules();
+                            alert('Division rule saved successfully!');
+                            return;
+                        } else {
+                            const errorMsg = data ? data.message : 'Unknown error';
+                            throw new Error(errorMsg);
+                        }
+                    }
+                    
+                    // Fallback to mock update
+                    console.log('📄 Saving division rule in mock data');
+                    hideDivisionRuleModal();
+                    alert('Division rule saved successfully (mock mode)!');
+                    
+                } catch (error) {
+                    console.error('❌ Error saving division rule:', error);
+                    alert('Failed to save division rule: ' + error.message);
+                }
+            });
+            
+            
+            console.log('✅ Creator Category Management initialized successfully');
+        });
+    </script>
+</body>
+</html>

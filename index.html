@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Creator Category Management - PRISM Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="h-10 w-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-bold text-lg">P</span>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-gray-900">Creator Category Management</h1>
+                        <p class="text-sm text-gray-500">PRISM Admin Portal</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span id="current-user-info" class="text-sm text-gray-600"></span>
+                    <button onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container mx-auto px-6 py-8">
+        <!-- Tab Navigation -->
+        <div class="bg-white rounded-lg shadow-sm mb-8">
+            <div class="border-b border-gray-200">
+                <nav class="-mb-px flex space-x-8 px-6">
+                    <button onclick="switchTab('categories')" id="categories-tab" class="tab-button py-4 px-1 border-b-2 border-blue-500 font-medium text-sm text-blue-600">
+                        Categories
+                    </button>
+                    <button onclick="switchTab('assignments')" id="assignments-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                        User Assignments
+                    </button>
+                    <button onclick="switchTab('projects')" id="projects-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                        Project Classifications
+                    </button>
+                    <button onclick="switchTab('rules')" id="rules-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                        Division Rules
+                    </button>
+                    <button onclick="switchTab('dashboard')" id="dashboard-tab" class="tab-button py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                        Dashboard
+                    </button>
+                </nav>
+            </div>
+        </div>
+
+        <!-- Categories Tab -->
+        <div id="categories-content" class="tab-content">
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-lg font-semibold text-gray-900">Creator Categories</h2>
+                    <button onclick="showCreateCategoryModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
+                        Create Category
+                    </button>
+                </div>
+                <div id="categories-table" class="overflow-x-auto">
+                    <!-- Categories will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- User Assignments Tab -->
+        <div id="assignments-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-6">User Category Assignments</h2>
+                <div id="users-table" class="overflow-x-auto">
+                    <!-- User assignments will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Project Classifications Tab -->
+        <div id="projects-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-6">Project Classifications</h2>
+                <div id="projects-table" class="overflow-x-auto">
+                    <!-- Project classifications will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Division Rules Tab -->
+        <div id="rules-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-6">Division Classification Rules</h2>
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <p class="text-sm text-blue-700">
+                        Set default classifications for CSI divisions. New projects will automatically inherit the classification based on their item code's division.
+                    </p>
+                </div>
+                <div id="division-rules-table" class="overflow-x-auto">
+                    <!-- Division rules will be loaded here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboard-content" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow-sm p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-6">Dashboard</h2>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div class="bg-white border rounded-lg p-4">
+                        <div class="text-2xl font-bold text-blue-600" id="stats-categories">0</div>
+                        <div class="text-sm text-gray-500">Categories</div>
+                    </div>
+                    <div class="bg-white border rounded-lg p-4">
+                        <div class="text-2xl font-bold text-green-600" id="stats-users">0</div>
+                        <div class="text-sm text-gray-500">Assigned Users</div>
+                    </div>
+                    <div class="bg-white border rounded-lg p-4">
+                        <div class="text-2xl font-bold text-purple-600" id="stats-projects">0</div>
+                        <div class="text-sm text-gray-500">Projects</div>
+                    </div>
+                    <div class="bg-white border rounded-lg p-4">
+                        <div class="text-2xl font-bold text-orange-600" id="stats-overrides">0</div>
+                        <div class="text-sm text-gray-500">Overrides</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentUser = null;
+        let categories = [];
+        let users = [];
+        let projects = [];
+        let supabaseClient = null;
+
+        // Supabase configuration
+        const supabaseUrl = 'https://mvftaaxgdygeyzcvzqfr.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12ZnRhYXhnZHlnZXl6Y3Z6cWZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2MjI3OTQsImV4cCI6MjA3NDE5ODc5NH0.nj5c_AAEg4U2qlcE1vQDMWt0nfXpmUYR1lrTR6KCIDY';
+
+        // Initialize Supabase
+        try {
+            supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+            console.log('✅ Supabase client created successfully');
+        } catch (error) {
+            console.error('❌ Failed to create Supabase client:', error);
+        }
+
+        // Essential functions that need to be available immediately
+        function switchTab(tabName) {
+            console.log('Switching to tab:', tabName);
+            
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.add('hidden');
+            });
+            
+            // Remove active state from all tab buttons
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('border-blue-500', 'text-blue-600');
+                button.classList.add('border-transparent', 'text-gray-500');
+            });
+            
+            // Show selected tab content
+            document.getElementById(tabName + '-content').classList.remove('hidden');
+            
+            // Add active state to selected tab button
+            document.getElementById(tabName + '-tab').classList.remove('border-transparent', 'text-gray-500');
+            document.getElementById(tabName + '-tab').classList.add('border-blue-500', 'text-blue-600');
+            
+            // Load tab-specific data
+            if (tabName === 'categories') {
+                loadCategories();
+            } else if (tabName === 'assignments') {
+                loadUserAssignments();
+            } else if (tabName === 'projects') {
+                loadProjectClassifications();
+            } else if (tabName === 'rules') {
+                loadDivisionRules();
+            } else if (tabName === 'dashboard') {
+                loadDashboardStats();
+            }
+        }
+
+        function logout() {
+            window.location.href = 'CODE_GENERATION_PORTAL_V60.html';
+        }
+
+        function showCreateCategoryModal() {
+            alert('Create category functionality will be available after executing the SQL scripts.');
+        }
+
+        // Authentication
+        async function checkAuth() {
+            console.log('🔐 Checking authentication...');
+            currentUser = {
+                id: 1,
+                username: 'Admin User',
+                email: 'admin@example.com',
+                role: 'admin'
+            };
+            document.getElementById('current-user-info').textContent = `${currentUser.username} (${currentUser.role})`;
+            console.log('✅ Authentication complete');
+        }
+
+        // Load categories
+        async function loadCategories() {
+            console.log('📂 Loading categories...');
+            document.getElementById('categories-table').innerHTML = `
+                <div class="text-center py-8">
+                    <p class="text-gray-600 mb-4">Execute the SQL scripts to enable full functionality:</p>
+                    <ol class="text-left text-sm text-gray-600 max-w-md mx-auto">
+                        <li>1. Execute: simple_fix_functions.sql</li>
+                        <li>2. Execute: correct_creator_and_project_system.sql</li>
+                        <li>3. Execute: division_classification_rules.sql</li>
+                        <li>4. Refresh this page</li>
+                    </ol>
+                </div>
+            `;
+        }
+
+        // Load user assignments
+        async function loadUserAssignments() {
+            console.log('👥 Loading user assignments...');
+            document.getElementById('users-table').innerHTML = `
+                <div class="text-center py-8 text-gray-600">
+                    User assignments will load here after executing the SQL scripts.
+                </div>
+            `;
+        }
+
+        // Load project classifications
+        async function loadProjectClassifications() {
+            console.log('📋 Loading project classifications...');
+            document.getElementById('projects-table').innerHTML = `
+                <div class="text-center py-8 text-gray-600">
+                    Project classifications will load here after executing the SQL scripts.
+                </div>
+            `;
+        }
+
+        // Load division rules
+        async function loadDivisionRules() {
+            console.log('🔧 Loading division rules...');
+            document.getElementById('division-rules-table').innerHTML = `
+                <div class="text-center py-8 text-gray-600">
+                    Division rules will load here after executing the SQL scripts.
+                    <br><br>
+                    <strong>What are Division Rules?</strong>
+                    <br>
+                    Set default classifications for CSI divisions (e.g., Division 03 = permanent, Division 23 = non-permanent).
+                    <br>
+                    New projects will automatically inherit these classifications based on their item codes.
+                </div>
+            `;
+        }
+
+        // Load dashboard stats
+        async function loadDashboardStats() {
+            console.log('📊 Loading dashboard stats...');
+            document.getElementById('stats-categories').textContent = '0';
+            document.getElementById('stats-users').textContent = '0';
+            document.getElementById('stats-projects').textContent = '0';
+            document.getElementById('stats-overrides').textContent = '0';
+        }
+
+        // Initialize app when DOM is loaded
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('🚀 Initializing Creator Category Management...');
+            
+            await checkAuth();
+            await loadCategories();
+            
+            console.log('✅ Creator Category Management initialized successfully');
+        });
+    </script>
+</body>
+</html>

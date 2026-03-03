@@ -341,6 +341,13 @@
                             </select>
                         </div>
                         <div>
+                            <label class="block text-sm font-medium text-gray-700">Project Type</label>
+                            <select id="change-project-type-select" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2" required>
+                                <option value="Purchase">Purchase</option>
+                                <option value="Cost">Cost</option>
+                            </select>
+                        </div>
+                        <div>
                             <label class="block text-sm font-medium text-gray-700">Reason (Optional)</label>
                             <textarea id="change-project-classification-notes" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2 h-20" placeholder="Reason for classification change"></textarea>
                         </div>
@@ -474,6 +481,48 @@
         </div>
     </div>
 
+    <!-- Change Project Type Modal -->
+    <div id="change-project-type-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Change Project Type</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Project</label>
+                        <input type="text" id="change-project-type-display" class="mt-1 block w-full border border-gray-300 rounded px-3 py-2 bg-gray-100" readonly>
+                        <input type="hidden" id="change-project-type-id">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Project Type</label>
+                        <div class="mt-2 flex space-x-6">
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="radio" name="project-type-radio" id="type-purchase" value="Purchase">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-teal-100 text-teal-800">Purchase</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="radio" name="project-type-radio" id="type-cost" value="Cost">
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-orange-100 text-orange-800">Cost</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                        <p class="text-sm text-blue-700">
+                            <strong>Note:</strong> Only admin-approved projects can have their type updated. This change is logged in the audit trail.
+                        </p>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end space-x-2">
+                    <button type="button" onclick="hideChangeProjectTypeModal()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                        Cancel
+                    </button>
+                    <button type="button" onclick="changeProjectType()" class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded">
+                        Update Type
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- User Project Management Modal -->
     <div id="user-projects-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
         <div class="flex items-center justify-center min-h-screen p-4">
@@ -573,9 +622,9 @@
         // Initialize Supabase
         try {
             supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
-            console.log('✅ Supabase client created successfully');
+            console.log('âœ… Supabase client created successfully');
         } catch (error) {
-            console.error('❌ Failed to create Supabase client:', error);
+            console.error('âŒ Failed to create Supabase client:', error);
         }
 
         // Mock data for fallback
@@ -635,7 +684,7 @@
 
         // Authentication
         async function checkAuth() {
-            console.log('🔐 Checking authentication...');
+            console.log('ðŸ” Checking authentication...');
             currentUser = {
                 id: 1,
                 username: 'Admin User',
@@ -643,42 +692,42 @@
                 role: 'admin'
             };
             document.getElementById('current-user-info').textContent = `${currentUser.username} (${currentUser.role})`;
-            console.log('✅ Authentication complete');
+            console.log('âœ… Authentication complete');
         }
 
         // Load categories
         async function loadCategories() {
-            console.log('📂 Loading categories...');
+            console.log('ðŸ“‚ Loading categories...');
             try {
                 if (supabaseClient) {
-                    console.log('🔄 Attempting to load from database...');
+                    console.log('ðŸ”„ Attempting to load from database...');
                     const { data, error } = await supabaseClient.rpc('get_creator_categories', {
                         user_id_param: currentUser.id
                     });
                     
-                    console.log('🔍 Database response:', { data, error });
+                    console.log('ðŸ” Database response:', { data, error });
                     
                     if (!error && data) {
                         if (data.success) {
-                            console.log('✅ Loaded categories from database:', data.categories?.length || 0, 'categories');
-                            console.log('📋 Categories data:', data.categories);
+                            console.log('âœ… Loaded categories from database:', data.categories?.length || 0, 'categories');
+                            console.log('ðŸ“‹ Categories data:', data.categories);
                             categories = data.categories || [];
                             renderCategoriesTable();
                             return;
                         } else {
-                            console.log('❌ Database returned error:', data.message);
+                            console.log('âŒ Database returned error:', data.message);
                         }
                     } else if (error) {
-                        console.log('❌ Database error:', error);
+                        console.log('âŒ Database error:', error);
                     }
                 }
                 
                 // Fallback to mock data
-                console.log('📄 Using mock data for categories');
+                console.log('ðŸ“„ Using mock data for categories');
                 categories = mockCategories;
                 renderCategoriesTable();
             } catch (error) {
-                console.error('❌ Error loading categories:', error);
+                console.error('âŒ Error loading categories:', error);
                 categories = mockCategories;
                 renderCategoriesTable();
             }
@@ -734,34 +783,34 @@
             `;
             
             container.innerHTML = tableHTML;
-            console.log('✅ Categories table rendered with', categories.length, 'categories');
+            console.log('âœ… Categories table rendered with', categories.length, 'categories');
         }
 
         // Load user assignments
         async function loadUserAssignments() {
-            console.log('👥 Loading user assignments...');
+            console.log('ðŸ‘¥ Loading user assignments...');
             try {
                 if (supabaseClient) {
-                    console.log('🔄 Attempting to load users from database...');
+                    console.log('ðŸ”„ Attempting to load users from database...');
                     const { data, error } = await supabaseClient.rpc('get_users_with_creator_categories', {
                         admin_user_id: currentUser.id
                     });
                     
                     if (!error && data && data.success) {
-                        console.log('✅ Loaded users from database:', data.users.length);
+                        console.log('âœ… Loaded users from database:', data.users.length);
                         users = data.users;
                         renderUsersTable();
                         return;
                     }
-                    console.log('⚠️ Database call failed, using mock data');
+                    console.log('âš ï¸ Database call failed, using mock data');
                 }
                 
                 // Fallback to mock data
-                console.log('📄 Using mock data for users');
+                console.log('ðŸ“„ Using mock data for users');
                 users = mockUsers;
                 renderUsersTable();
             } catch (error) {
-                console.error('❌ Error loading users:', error);
+                console.error('âŒ Error loading users:', error);
                 users = mockUsers;
                 renderUsersTable();
             }
@@ -834,7 +883,7 @@
             document.getElementById('user-filter-count').textContent = usersToShow.length;
             document.getElementById('user-total-count').textContent = users.length;
             
-            console.log('✅ Users table rendered with', usersToShow.length, 'users');
+            console.log('âœ… Users table rendered with', usersToShow.length, 'users');
         }
 
         // User filtering functions
@@ -880,19 +929,19 @@
 
         // Load project classifications
         async function loadProjectClassifications() {
-            console.log('📋 Loading project classifications...');
+            console.log('ðŸ“‹ Loading project classifications...');
             try {
                 if (supabaseClient) {
-                    console.log('🔄 Attempting to load projects from database...');
+                    console.log('ðŸ”„ Attempting to load projects from database...');
                     const { data, error } = await supabaseClient.rpc('get_projects_with_classifications', {
                         admin_user_id: currentUser.id
                     });
                     
-                    console.log('🔍 Projects response:', { data, error });
+                    console.log('ðŸ” Projects response:', { data, error });
                     
                     if (!error && data) {
                         if (data.success) {
-                            console.log('✅ Loaded projects from database:', data.projects?.length || 0, 'projects');
+                            console.log('âœ… Loaded projects from database:', data.projects?.length || 0, 'projects');
                             projects = data.projects || [];
                             
                             // Also load classifications for dropdown
@@ -904,25 +953,44 @@
                                 projectClassifications = classResponse.data.classifications || [];
                             }
                             
+                            // Fetch project_type directly from classification_projects table
+                            try {
+                                const { data: typeData, error: typeError } = await supabaseClient
+                                    .from('classification_projects')
+                                    .select('id, project_type')
+                                    .eq('status', 'admin_approved');
+                                if (!typeError && typeData) {
+                                    const metaMap = {};
+                                    typeData.forEach(mp => { metaMap[mp.id] = mp.project_type; });
+                                    projects = projects.map(p => ({
+                                        ...p,
+                                        project_type: metaMap[p.id] || 'Purchase'
+                                    }));
+                                    console.log('Project type data merged successfully');
+                                }
+                            } catch (metaErr) {
+                                console.warn('Could not load project_type data:', metaErr);
+                            }
+                            
                             renderProjectsTable();
                             return;
                         } else {
-                            console.log('❌ Database returned error:', data.message);
+                            console.log('âŒ Database returned error:', data.message);
                         }
                     } else if (error) {
-                        console.log('❌ Database error:', error);
+                        console.log('âŒ Database error:', error);
                     }
                 }
                 
                 // Fallback to mock data
-                console.log('📄 Using mock data for projects');
+                console.log('ðŸ“„ Using mock data for projects');
                 projects = [
                     { id: 1, project_name: 'Steel Components', item_code: 'STL-001', classification_name: 'multiple', classification_description: 'All access' },
                     { id: 2, project_name: 'Concrete Elements', item_code: 'CON-002', classification_name: 'permanent', classification_description: 'Permanent only' }
                 ];
                 renderProjectsTable();
             } catch (error) {
-                console.error('❌ Error loading projects:', error);
+                console.error('âŒ Error loading projects:', error);
                 projects = [];
                 renderProjectsTable();
             }
@@ -948,6 +1016,7 @@
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project Name</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item Code</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Classification</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project Type</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                         </tr>
@@ -969,11 +1038,23 @@
                                         ${project.classification_name || 'multiple'}
                                     </span>
                                 </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                        (project.project_type || 'Purchase') === 'Purchase' ? 'bg-teal-100 text-teal-800' : 'bg-orange-100 text-orange-800'
+                                    }">
+                                        ${project.project_type || 'Purchase'}
+                                    </span>
+                                </td>
                                 <td class="px-6 py-4 text-sm text-gray-500">${project.classification_description || 'All access'}</td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <button onclick="showChangeProjectClassificationModal(${project.id}, '${project.project_name}')" 
-                                            class="text-blue-600 hover:text-blue-900">
+                                            class="text-blue-600 hover:text-blue-900 mr-3">
                                         Change Classification
+                                    </button>
+                                    <button onclick="showChangeProjectTypeModal(${project.id}, '${project.project_name}', this.dataset.type)" 
+                                            data-type="${project.project_type || 'Purchase'}"
+                                            class="text-orange-600 hover:text-orange-900">
+                                        Change Type
                                     </button>
                                 </td>
                             </tr>
@@ -991,7 +1072,7 @@
             // Update division and section filter options
             updateDivisionSectionFilters();
             
-            console.log('✅ Projects table rendered with', projectsToShow.length, 'projects');
+            console.log('âœ… Projects table rendered with', projectsToShow.length, 'projects');
         }
 
         // Project filtering functions
@@ -1071,32 +1152,32 @@
 
         // Load division rules
         async function loadDivisionRules() {
-            console.log('🔧 Loading division rules...');
+            console.log('ðŸ”§ Loading division rules...');
             try {
                 if (supabaseClient) {
-                    console.log('🔄 Attempting to load division rules from database...');
+                    console.log('ðŸ”„ Attempting to load division rules from database...');
                     const { data, error } = await supabaseClient.rpc('get_division_classification_rules', {
                         admin_user_id: currentUser.id
                     });
                     
-                    console.log('🔍 Division rules response:', { data, error });
+                    console.log('ðŸ” Division rules response:', { data, error });
                     
                     if (!error && data) {
                         if (data.success) {
-                            console.log('✅ Loaded division rules from database:', data.rules?.length || 0, 'rules');
+                            console.log('âœ… Loaded division rules from database:', data.rules?.length || 0, 'rules');
                             divisionRules = data.rules || [];
                             renderDivisionRulesTable();
                             return;
                         } else {
-                            console.log('❌ Database returned error:', data.message);
+                            console.log('âŒ Database returned error:', data.message);
                         }
                     } else if (error) {
-                        console.log('❌ Database error:', error);
+                        console.log('âŒ Database error:', error);
                     }
                 }
                 
                 // Fallback to mock data
-                console.log('📄 Using mock data for division rules');
+                console.log('ðŸ“„ Using mock data for division rules');
                 divisionRules = [
                     { id: 1, division_code: '03', division_name: 'Concrete', default_classification_name: 'permanent', project_count: 12 },
                     { id: 2, division_code: '05', division_name: 'Metals', default_classification_name: 'permanent', project_count: 8 },
@@ -1104,7 +1185,7 @@
                 ];
                 renderDivisionRulesTable();
             } catch (error) {
-                console.error('❌ Error loading division rules:', error);
+                console.error('âŒ Error loading division rules:', error);
                 divisionRules = [];
                 renderDivisionRulesTable();
             }
@@ -1158,14 +1239,14 @@
             `;
             
             container.innerHTML = tableHTML;
-            console.log('✅ Division rules table rendered with', divisionRules.length, 'rules');
+            console.log('âœ… Division rules table rendered with', divisionRules.length, 'rules');
         }
 
         // Division rules management functions
         async function showAddDivisionRuleModal() {
             // Ensure projects are loaded before extracting divisions
             if (projects.length === 0) {
-                console.log('📋 Loading projects first to populate division dropdown...');
+                console.log('ðŸ“‹ Loading projects first to populate division dropdown...');
                 await loadProjectClassifications();
             }
             
@@ -1175,7 +1256,7 @@
             
             if (divisions.length === 0) {
                 // Fallback to standard divisions if no projects exist
-                console.log('📄 No projects found, using standard CSI divisions');
+                console.log('ðŸ“„ No projects found, using standard CSI divisions');
                 const standardDivisions = getStandardDivisions();
                 let optionsHTML = '<option value="">Select Division</option>';
                 standardDivisions.forEach(division => {
@@ -1214,7 +1295,7 @@
         async function editDivisionRule(divisionCode, divisionName, classificationId) {
             // Ensure projects are loaded before extracting divisions
             if (projects.length === 0) {
-                console.log('📋 Loading projects first to populate division dropdown...');
+                console.log('ðŸ“‹ Loading projects first to populate division dropdown...');
                 await loadProjectClassifications();
             }
             
@@ -1371,7 +1452,7 @@
             
             // Load projects if not already loaded
             if (projects.length === 0) {
-                console.log('📋 Loading projects for visibility management...');
+                console.log('ðŸ“‹ Loading projects for visibility management...');
                 await loadProjectClassifications();
             }
             
@@ -1403,14 +1484,14 @@
         async function loadUserProjectVisibility(userId) {
             try {
                 if (supabaseClient) {
-                    console.log('🔄 Loading user project visibility from database...');
+                    console.log('ðŸ”„ Loading user project visibility from database...');
                     const { data, error } = await supabaseClient.rpc('get_user_project_visibility', {
                         p_user_id: userId,
                         p_admin_user_id: currentUser.id
                     });
                     
                     if (!error && data && data.success) {
-                        console.log('✅ Loaded user project visibility:', data.visibility_settings);
+                        console.log('âœ… Loaded user project visibility:', data.visibility_settings);
                         
                         // Initialize with default values for all projects
                         userProjectVisibility = {};
@@ -1427,7 +1508,7 @@
                         
                         return;
                     } else {
-                        console.log('❌ Error loading visibility settings:', data?.message || error);
+                        console.log('âŒ Error loading visibility settings:', data?.message || error);
                     }
                 }
                 
@@ -1438,7 +1519,7 @@
                 });
                 
             } catch (error) {
-                console.error('❌ Error loading user project visibility:', error);
+                console.error('âŒ Error loading user project visibility:', error);
                 userProjectVisibility = {};
                 projects.forEach(project => {
                     userProjectVisibility[project.id] = 'default';
@@ -1519,7 +1600,7 @@
 
         function updateProjectVisibility(projectId, visibility) {
             userProjectVisibility[projectId] = visibility;
-            console.log('🔄 Updated project visibility:', projectId, visibility);
+            console.log('ðŸ”„ Updated project visibility:', projectId, visibility);
         }
 
         function selectAllProjectsForUser() {
@@ -1546,7 +1627,7 @@
         async function saveUserProjectVisibility() {
             try {
                 if (supabaseClient) {
-                    console.log('🔄 Saving user project visibility to database...');
+                    console.log('ðŸ”„ Saving user project visibility to database...');
                     console.log('User ID:', currentUserId);
                     console.log('Visibility settings:', userProjectVisibility);
                     
@@ -1557,7 +1638,7 @@
                     });
                     
                     if (!error && data && data.success) {
-                        console.log('✅ Project visibility settings saved to database');
+                        console.log('âœ… Project visibility settings saved to database');
                         alert(`Project visibility settings saved successfully! ${data.affected_projects} projects updated.`);
                     } else {
                         throw new Error(data?.message || 'Failed to save visibility settings');
@@ -1569,7 +1650,7 @@
                 hideUserProjectsModal();
                 
             } catch (error) {
-                console.error('❌ Error saving user project visibility:', error);
+                console.error('âŒ Error saving user project visibility:', error);
                 alert('Failed to save project visibility settings: ' + error.message);
             }
         }
@@ -1604,7 +1685,7 @@
 
         // Load dashboard stats
         async function loadDashboardStats() {
-            console.log('📊 Loading dashboard stats...');
+            console.log('ðŸ“Š Loading dashboard stats...');
             const categoriesCount = categories.length;
             const usersCount = users.filter(u => u.categories && u.categories.length > 0).length;
             
@@ -1613,12 +1694,12 @@
             document.getElementById('stats-projects').textContent = '5'; // Mock for now
             document.getElementById('stats-overrides').textContent = '2'; // Mock for now
             
-            console.log('✅ Dashboard stats updated');
+            console.log('âœ… Dashboard stats updated');
         }
 
         // Toggle category status
         async function toggleCategoryStatus(categoryId, newStatus) {
-            console.log('🔄 Toggling category status:', categoryId, newStatus);
+            console.log('ðŸ”„ Toggling category status:', categoryId, newStatus);
             try {
                 if (supabaseClient) {
                     const { error } = await supabaseClient
@@ -1627,7 +1708,7 @@
                         .eq('id', categoryId);
                     
                     if (!error) {
-                        console.log('✅ Category updated in database');
+                        console.log('âœ… Category updated in database');
                         await loadCategories();
                         alert(`Category ${newStatus ? 'activated' : 'deactivated'} successfully!`);
                         return;
@@ -1635,7 +1716,7 @@
                 }
                 
                 // Fallback to mock update
-                console.log('📄 Updating category in mock data');
+                console.log('ðŸ“„ Updating category in mock data');
                 const category = categories.find(c => c.id === categoryId);
                 if (category) {
                     category.is_active = newStatus;
@@ -1643,7 +1724,7 @@
                     alert(`Category ${newStatus ? 'activated' : 'deactivated'} successfully (mock mode)!`);
                 }
             } catch (error) {
-                console.error('❌ Error toggling category:', error);
+                console.error('âŒ Error toggling category:', error);
                 alert('Failed to update category: ' + error.message);
             }
         }
@@ -1694,12 +1775,78 @@
                 `;
             }
             
+            // Pre-select current project type
+            const project = projects.find(p => p.id == projectId);
+            const currentType = project ? (project.project_type || 'Purchase') : 'Purchase';
+            document.getElementById('change-project-type-select').value = currentType;
+            
             document.getElementById('change-project-classification-modal').classList.remove('hidden');
         }
 
         function hideChangeProjectClassificationModal() {
             document.getElementById('change-project-classification-modal').classList.add('hidden');
             document.getElementById('change-project-classification-form').reset();
+        }
+
+        function showChangeProjectTypeModal(projectId, projectName, currentType) {
+            document.getElementById('change-project-type-id').value = projectId;
+            document.getElementById('change-project-type-display').value = projectName;
+            // Set the correct radio button
+            const radios = document.querySelectorAll('input[name="project-type-radio"]');
+            radios.forEach(r => { r.checked = (r.value === currentType); });
+            document.getElementById('change-project-type-modal').classList.remove('hidden');
+        }
+
+        function hideChangeProjectTypeModal() {
+            document.getElementById('change-project-type-modal').classList.add('hidden');
+        }
+
+        async function changeProjectType() {
+            const projectId = parseInt(document.getElementById('change-project-type-id').value);
+            const projectName = document.getElementById('change-project-type-display').value;
+            const selectedRadio = document.querySelector('input[name="project-type-radio"]:checked');
+            
+            if (!selectedRadio) {
+                alert('Please select a project type (Purchase or Cost).');
+                return;
+            }
+            
+            const newType = selectedRadio.value;
+            console.log('🔄 Changing project type:', projectId, '->', newType);
+            
+            try {
+                if (supabaseClient) {
+                    const { data, error } = await supabaseClient.rpc('update_project_metadata', {
+                        project_id_param: projectId,
+                        project_item_group_param: null,
+                        project_type_param: newType,
+                        updated_by_param: currentUser.id
+                    });
+                    
+                    if (!error && data && data.success) {
+                        console.log('✅ Project type updated in database');
+                        hideChangeProjectTypeModal();
+                        await loadProjectClassifications();
+                        alert(`Project "${projectName}" type changed to "${newType}" successfully!`);
+                        return;
+                    } else {
+                        const errorMsg = data ? data.message : (error?.message || 'Unknown error');
+                        throw new Error(errorMsg);
+                    }
+                }
+                
+                // Fallback mock
+                console.log('🔄 Updating project type in mock data');
+                const project = projects.find(p => p.id === projectId);
+                if (project) { project.project_type = newType; }
+                hideChangeProjectTypeModal();
+                renderProjectsTable();
+                alert(`Project type changed to "${newType}" successfully (mock mode)!`);
+                
+            } catch (error) {
+                console.error('❌ Error changing project type:', error);
+                alert('Failed to change project type: ' + error.message);
+            }
         }
 
         // Bulk operations functions
@@ -1827,7 +1974,7 @@
 
         // Initialize app
         document.addEventListener('DOMContentLoaded', async function() {
-            console.log('🚀 Initializing Creator Category Management...');
+            console.log('ðŸš€ Initializing Creator Category Management...');
             
             await checkAuth();
             await loadCategories();
@@ -1839,7 +1986,7 @@
                 const name = document.getElementById('category-name').value;
                 const description = document.getElementById('category-description').value;
                 
-                console.log('🔄 Creating category:', name);
+                console.log('ðŸ”„ Creating category:', name);
                 
                 try {
                     if (supabaseClient) {
@@ -1852,7 +1999,7 @@
                             });
                         
                         if (!error) {
-                            console.log('✅ Category created in database');
+                            console.log('âœ… Category created in database');
                             hideCreateCategoryModal();
                             await loadCategories();
                             alert('Category created successfully!');
@@ -1861,7 +2008,7 @@
                     }
                     
                     // Fallback to mock creation
-                    console.log('📄 Creating category in mock data');
+                    console.log('ðŸ“„ Creating category in mock data');
                     const newCategory = {
                         id: categories.length + 1,
                         category_name: name,
@@ -1876,7 +2023,7 @@
                     alert('Category created successfully (mock mode)!');
                     
                 } catch (error) {
-                    console.error('❌ Error creating category:', error);
+                    console.error('âŒ Error creating category:', error);
                     alert('Failed to create category: ' + error.message);
                 }
             });
@@ -1889,43 +2036,81 @@
                 const categoryId = document.getElementById('change-category-select').value;
                 const notes = document.getElementById('change-category-notes').value || 'Category changed via admin interface';
                 
-                console.log('🔄 Changing user category:', userId, 'to category:', categoryId);
+                console.log('ðŸ”„ Changing user category:', userId, 'to category:', categoryId);
                 
                 try {
+                    let success = false;
+                    let message = '';
+                    
                     if (supabaseClient) {
-                        const { data, error } = await supabaseClient.rpc('change_user_category', {
-                            p_user_id: parseInt(userId),
-                            p_new_category_id: parseInt(categoryId),
-                            p_admin_user_id: currentUser.id,
-                            p_notes: notes
-                        });
-                        
-                        if (!error && data && data.success) {
-                            console.log('✅ User category changed in database');
-                            hideChangeCategoryModal();
-                            await loadUserAssignments();
-                            await loadCategories(); // Refresh to update user counts
-                            alert('User category changed successfully!');
-                            return;
-                        } else {
-                            const errorMsg = data ? data.message : 'Unknown error';
-                            throw new Error(errorMsg);
+                        // Try final RPC function
+                        try {
+                            console.log('Attempting final RPC function...');
+                            const rpcResult = await supabaseClient.rpc('change_user_category_final', {
+                                p_user_id: parseInt(userId),
+                                p_new_category_id: parseInt(categoryId)
+                            });
+                            
+                            if (!rpcResult.error && rpcResult.data && rpcResult.data.success) {
+                                console.log('âœ… User category changed via final RPC');
+                                success = true;
+                                message = 'User category changed successfully!';
+                            } else {
+                                throw new Error(rpcResult.data?.message || rpcResult.error?.message || 'RPC failed');
+                            }
+                        } catch (rpcError) {
+                            console.log('âš ï¸ RPC failed, using direct operations with all required fields...');
+                            
+                            try {
+                                // Delete then insert with ALL required fields
+                                await supabaseClient
+                                    .from('user_creator_categories')
+                                    .delete()
+                                    .eq('user_id', parseInt(userId));
+                                
+                                const { error: insertError } = await supabaseClient
+                                    .from('user_creator_categories')
+                                    .insert({
+                                        user_id: parseInt(userId),
+                                        category_id: parseInt(categoryId),
+                                        assigned_by: currentUser.id,
+                                        is_active: true
+                                    });
+                                
+                                if (insertError) throw insertError;
+                                
+                                console.log('âœ… User category changed via direct operations with required fields');
+                                success = true;
+                                message = 'User category changed successfully!';
+                                
+                            } catch (dbError) {
+                                throw new Error('Database failed: ' + (dbError.message || dbError));
+                            }
                         }
                     }
                     
-                    // Fallback to mock update
-                    console.log('📄 Changing user category in mock data');
-                    const user = users.find(u => u.user_id == userId);
-                    const category = categories.find(c => c.id == categoryId);
-                    if (user && category) {
-                        user.categories = [{ category_name: category.category_name }];
-                        renderUsersTable();
+                    if (success) {
                         hideChangeCategoryModal();
-                        alert('User category changed successfully (mock mode)!');
+                        await loadUserAssignments();
+                        await loadCategories(); // Refresh to update user counts
+                        alert(message);
+                    } else {
+                        // Final fallback to mock update
+                        console.log('ðŸ“„ Using mock data update...');
+                        const user = users.find(u => u.user_id == userId);
+                        const category = categories.find(c => c.id == categoryId);
+                        if (user && category) {
+                            user.categories = [{ category_name: category.category_name }];
+                            renderUsersTable();
+                            hideChangeCategoryModal();
+                            alert('User category changed successfully (mock mode)!');
+                        } else {
+                            throw new Error('User or category not found in mock data');
+                        }
                     }
                     
                 } catch (error) {
-                    console.error('❌ Error changing user category:', error);
+                    console.error('âŒ Error changing user category:', error);
                     alert('Failed to change user category: ' + error.message);
                 }
             });
@@ -1936,12 +2121,14 @@
                 
                 const projectId = document.getElementById('change-project-id').value;
                 const classificationId = document.getElementById('change-project-classification-select').value;
+                const newType = document.getElementById('change-project-type-select').value;
                 const notes = document.getElementById('change-project-classification-notes').value || 'Classification changed via admin interface';
                 
-                console.log('🔄 Changing project classification:', projectId, 'to classification:', classificationId);
+                console.log('Changing project:', projectId, '| classification:', classificationId, '| type:', newType);
                 
                 try {
                     if (supabaseClient) {
+                        // Step 1: Change classification
                         const { data, error } = await supabaseClient.rpc('change_project_classification', {
                             p_project_id: parseInt(projectId),
                             p_new_classification_id: parseInt(classificationId),
@@ -1950,32 +2137,45 @@
                         });
                         
                         if (!error && data && data.success) {
-                            console.log('✅ Project classification changed in database');
-                            hideChangeProjectClassificationModal();
-                            await loadProjectClassifications();
-                            alert('Project classification changed successfully!');
-                            return;
+                            console.log('Project classification changed in database');
                         } else {
-                            const errorMsg = data ? data.message : 'Unknown error';
-                            throw new Error(errorMsg);
+                            throw new Error(data ? data.message : 'Failed to change classification');
                         }
+                        
+                        // Step 2: Change project type
+                        const { data: typeData, error: typeError } = await supabaseClient.rpc('update_project_metadata', {
+                            project_id_param: parseInt(projectId),
+                            project_item_group_param: null,
+                            project_type_param: newType,
+                            updated_by_param: currentUser.id
+                        });
+                        
+                        if (!typeError && typeData && typeData.success) {
+                            console.log('Project type updated in database');
+                        } else {
+                            console.warn('Project type update failed:', typeData?.message || typeError?.message);
+                        }
+                        
+                        hideChangeProjectClassificationModal();
+                        await loadProjectClassifications();
+                        alert('Project updated successfully!');
+                        return;
                     }
                     
                     // Fallback to mock update
-                    console.log('📄 Changing project classification in mock data');
                     const project = projects.find(p => p.id == projectId);
                     if (project) {
-                        // Update classification name based on ID (simplified)
                         const classNames = { '1': 'permanent', '2': 'non-permanent', '3': 'multiple' };
                         project.classification_name = classNames[classificationId] || 'multiple';
+                        project.project_type = newType;
                         renderProjectsTable();
                         hideChangeProjectClassificationModal();
-                        alert('Project classification changed successfully (mock mode)!');
+                        alert('Project updated successfully (mock mode)!');
                     }
                     
                 } catch (error) {
-                    console.error('❌ Error changing project classification:', error);
-                    alert('Failed to change project classification: ' + error.message);
+                    console.error('Error updating project:', error);
+                    alert('Failed to update project: ' + error.message);
                 }
             });
 
@@ -1988,7 +2188,7 @@
                 const categoryId = document.getElementById('bulk-user-category-select').value;
                 const notes = document.getElementById('bulk-user-category-notes').value || 'Bulk category change via admin interface';
                 
-                console.log('🔄 Bulk changing user categories:', userIds.length, 'users to category:', categoryId);
+                console.log('ðŸ”„ Bulk changing user categories:', userIds.length, 'users to category:', categoryId);
                 
                 try {
                     if (supabaseClient) {
@@ -2000,7 +2200,7 @@
                         });
                         
                         if (!error && data && data.success) {
-                            console.log('✅ Bulk user categories changed in database');
+                            console.log('âœ… Bulk user categories changed in database');
                             hideBulkUserCategoryModal();
                             clearUserSelection();
                             await loadUserAssignments();
@@ -2014,13 +2214,13 @@
                     }
                     
                     // Fallback to mock update
-                    console.log('📄 Bulk changing user categories in mock data');
+                    console.log('ðŸ“„ Bulk changing user categories in mock data');
                     hideBulkUserCategoryModal();
                     clearUserSelection();
                     alert('Bulk category change completed successfully (mock mode)!');
                     
                 } catch (error) {
-                    console.error('❌ Error bulk changing user categories:', error);
+                    console.error('âŒ Error bulk changing user categories:', error);
                     alert('Failed to bulk change user categories: ' + error.message);
                 }
             });
@@ -2034,7 +2234,7 @@
                 const classificationId = document.getElementById('bulk-project-classification-select').value;
                 const notes = document.getElementById('bulk-project-classification-notes').value || 'Bulk classification change via admin interface';
                 
-                console.log('🔄 Bulk changing project classifications:', projectIds.length, 'projects to classification:', classificationId);
+                console.log('ðŸ”„ Bulk changing project classifications:', projectIds.length, 'projects to classification:', classificationId);
                 
                 try {
                     if (supabaseClient) {
@@ -2046,7 +2246,7 @@
                         });
                         
                         if (!error && data && data.success) {
-                            console.log('✅ Bulk project classifications changed in database');
+                            console.log('âœ… Bulk project classifications changed in database');
                             hideBulkProjectClassificationModal();
                             clearProjectSelection();
                             await loadProjectClassifications();
@@ -2059,13 +2259,13 @@
                     }
                     
                     // Fallback to mock update
-                    console.log('📄 Bulk changing project classifications in mock data');
+                    console.log('ðŸ“„ Bulk changing project classifications in mock data');
                     hideBulkProjectClassificationModal();
                     clearProjectSelection();
                     alert('Bulk classification change completed successfully (mock mode)!');
                     
                 } catch (error) {
-                    console.error('❌ Error bulk changing project classifications:', error);
+                    console.error('âŒ Error bulk changing project classifications:', error);
                     alert('Failed to bulk change project classifications: ' + error.message);
                 }
             });
@@ -2085,7 +2285,7 @@
                 
                 const classificationId = document.getElementById('division-rule-classification-select').value;
                 
-                console.log('🔄 Saving division rule:', divisionCode, 'to classification:', classificationId);
+                console.log('ðŸ”„ Saving division rule:', divisionCode, 'to classification:', classificationId);
                 
                 try {
                     if (supabaseClient) {
@@ -2097,7 +2297,7 @@
                         });
                         
                         if (!error && data && data.success) {
-                            console.log('✅ Division rule saved in database');
+                            console.log('âœ… Division rule saved in database');
                             hideDivisionRuleModal();
                             await loadDivisionRules();
                             alert('Division rule saved successfully!');
@@ -2109,18 +2309,18 @@
                     }
                     
                     // Fallback to mock update
-                    console.log('📄 Saving division rule in mock data');
+                    console.log('ðŸ“„ Saving division rule in mock data');
                     hideDivisionRuleModal();
                     alert('Division rule saved successfully (mock mode)!');
                     
                 } catch (error) {
-                    console.error('❌ Error saving division rule:', error);
+                    console.error('âŒ Error saving division rule:', error);
                     alert('Failed to save division rule: ' + error.message);
                 }
             });
             
             
-            console.log('✅ Creator Category Management initialized successfully');
+            console.log('âœ… Creator Category Management initialized successfully');
         });
     </script>
 </body>
